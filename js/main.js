@@ -9,6 +9,7 @@ import money from './views/money.js';
 import settings, { showSyncStatus, openJoinSheet, openWhoSheet } from './views/settings.js';
 import onboarding from './views/onboarding.js';
 import * as D from './domain.js';
+import { startRates, refreshRates } from './rates.js';
 
 [home, shopping, tasks, money, settings, onboarding].forEach((v) => app.register(v));
 
@@ -26,15 +27,21 @@ if (m) {
   if (app.views[tab] && tab !== 'onboarding') app.tab = tab;
 }
 
+D.migrateFinance();
 app.init();
 app.render();
 
-store.subscribe((src) => app.render(src));
+store.subscribe((src) => {
+  if (src === 'remote' || src === 'meta') D.migrateFinance();
+  if (src === 'meta' && store.meta.onboarded) refreshRates();
+  app.render(src);
+});
 sync.subscribe(() => {
   // Solo cambia el indicador: se repinta la barra/ajustes sin molestar al usuario.
   if (app.tab === 'home' || app.tab === 'settings') app.render('sync');
 });
 sync.init();
+startRates();
 
 if (joinCode) {
   if (store.meta.onboarded) {

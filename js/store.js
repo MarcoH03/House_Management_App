@@ -4,7 +4,7 @@
 
 const DATA_KEY = 'hogar:data';
 const META_KEY = 'hogar:meta';
-export const COLS = ['members', 'items', 'purchases', 'tasks', 'budgets', 'expenses', 'activity'];
+export const COLS = ['members', 'items', 'purchases', 'tasks', 'budgets', 'expenses', 'activity', 'accounts', 'txns', 'fx'];
 const ACTIVITY_TTL = 60 * 86400000;
 
 function blank() {

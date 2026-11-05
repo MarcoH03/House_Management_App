@@ -110,6 +110,17 @@ export function parseAmount(v) {
   return isFinite(n) ? n : 0;
 }
 
+/** Importe con el código de moneda detrás: "33 250 CUP", "50 USD", "12,50 EUR". */
+export function fmtCur(n, code = 'CUP', { sign = false } = {}) {
+  const v = Number(n) || 0;
+  const cents = Math.round(Math.abs(v) * 100) % 100 !== 0;
+  const opts = { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 };
+  let num;
+  try { num = Math.abs(v).toLocaleString(LOCALE, { ...opts, useGrouping: 'always' }); } catch { num = Math.abs(v).toLocaleString(LOCALE, opts); }
+  const pre = v < 0 ? '−' : sign && v > 0 ? '+' : '';
+  return `${pre}${num}\u00a0${code}`;
+}
+
 export const fmtQty = (n) => round2(n).toLocaleString(LOCALE, { maximumFractionDigits: 2 });
 export const fmtNum = (n) => round2(n).toLocaleString(LOCALE, { maximumFractionDigits: 2, useGrouping: false });
 

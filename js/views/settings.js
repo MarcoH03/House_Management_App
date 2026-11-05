@@ -3,12 +3,13 @@ import { store } from '../store.js';
 import { sync } from '../sync.js';
 import { app } from '../app.js';
 import * as D from '../domain.js';
-import { esc, timeAgo, today, isIOS } from '../util.js';
+import { esc, timeAgo, today, isIOS, fmtCur } from '../util.js';
+import { openRatesSheet, openCategoriesSheet } from './money.js';
 import { icon } from '../icons.js';
 import { largeTitle, group, row, F, avatar, iconTile } from '../ui.js';
 import { openSheet, confirmDialog, alertDialog, toast, actionSheet } from '../overlays.js';
 
-const VERSION = '1.0';
+const VERSION = '1.1';
 
 /* ---------- Estado de sincronización ---------- */
 
@@ -161,11 +162,10 @@ function openHouseSheet() {
   openSheet({
     title: 'Casa',
     body: group({
-      body: F.text({ name: 'name', label: 'Nombre', value: s.name, placeholder: 'Mi casa', attrs: 'autocapitalize="sentences"' })
-        + F.select({ name: 'currency', label: 'Moneda', value: s.currency, options: D.CURRENCIES }),
+      body: F.text({ name: 'name', label: 'Nombre', value: s.name, placeholder: 'Mi casa', attrs: 'autocapitalize="sentences"' }),
     }),
     require: 'name',
-    onDone(v) { store.setSettings({ name: v.name.trim(), currency: v.currency }); },
+    onDone(v) { store.setSettings({ name: v.name.trim() }); },
   });
 }
 
@@ -245,7 +245,7 @@ export default {
     const head = `<div class="group"><div class="list">${row({
       lead: '<img class="house-icon" src="icons/icon-180.png" alt="">',
       title: `<span class="big-name">${esc(s.name || 'Mi casa')}</span>`,
-      sub: `${ms.length} ${ms.length === 1 ? 'miembro' : 'miembros'}<span class="dot">·</span>${esc(D.CURRENCIES.find((c) => c[0] === s.currency)?.[1] || s.currency)}`,
+      sub: `${ms.length} ${ms.length === 1 ? 'miembro' : 'miembros'}<span class="dot">·</span>Moneda principal: CUP`,
       action: 'house', chevron: true, cls: 'profile',
     })}</div></div>`;
 
@@ -274,6 +274,13 @@ export default {
         footer: 'Conecta la app a un repositorio privado de GitHub para compartir los datos entre los dispositivos de la casa.',
       });
 
+    const usd = D.rateOf('USD');
+    const financeGroup = group({
+      header: 'Finanzas',
+      body: row({ lead: iconTile('exchange', 'orange'), title: 'Tasas de cambio', trail: usd ? esc(`1 USD = ${fmtCur(usd)}`) : 'Sin fijar', action: 'rates', chevron: true })
+        + row({ lead: iconTile('tray', 'purple'), title: 'Categorías de gasto', trail: String(D.categories().length), action: 'categories', chevron: true }),
+    });
+
     const dataGroup = group({
       header: 'Datos',
       body: row({ lead: iconTile('download', 'teal'), title: 'Exportar copia de seguridad', action: 'export' })
@@ -286,7 +293,7 @@ export default {
         + row({ lead: iconTile('info', 'gray'), title: 'Versión', trail: VERSION }),
     });
 
-    return largeTitle('Ajustes') + head + membersGroup + syncGroup + dataGroup + help;
+    return largeTitle('Ajustes') + head + membersGroup + financeGroup + syncGroup + dataGroup + help;
   },
   actions: {
     house: openHouseSheet,
@@ -300,6 +307,8 @@ export default {
       if (await confirmDialog({ title: '¿Desconectar este dispositivo?', message: 'Los datos se quedarán en el dispositivo, pero dejarán de sincronizarse.', confirm: 'Desconectar' })) sync.disconnect();
     },
     export: exportData,
+    rates: openRatesSheet,
+    categories: openCategoriesSheet,
     install: openInstallSheet,
     async wipe() {
       if (await confirmDialog({ title: '¿Borrar los datos de este dispositivo?', message: sync.configured ? 'Se desconectará de la sincronización. Los datos en GitHub no se borran.' : 'Esta acción no se puede deshacer. Exporta antes una copia si la necesitas.', confirm: 'Borrar' })) {

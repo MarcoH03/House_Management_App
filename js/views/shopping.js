@@ -2,11 +2,11 @@
 import { store } from '../store.js';
 import { app } from '../app.js';
 import * as D from '../domain.js';
-import { esc, fmtQty, fmtDay, groupBy, parseAmount, listNames } from '../util.js';
+import { esc, fmtQty, fmtDay, groupBy, parseAmount, listNames, today } from '../util.js';
 import { icon } from '../icons.js';
 import { largeTitle, group, row, check, segmented, empty, glassBtn, F, avatar } from '../ui.js';
 import { openSheet, confirmDialog, toast } from '../overlays.js';
-import { openExpenseSheet, amountField } from './money.js';
+import { openExpenseSheet, paymentBody, bindPayment, readPayment } from './money.js';
 
 const state = { seg: 'list', q: '', quick: '' };
 
@@ -94,20 +94,24 @@ export function openItemSheet(id, defaults = {}) {
 export function openBuySheet(id) {
   const it = store.get('items', id);
   if (!it) return;
-  const bs = D.budgets();
-  const body = amountField('', 'Importe (opcional)')
-    + group({
-      body: F.stepper({ name: 'qty', label: 'Cantidad comprada', value: it.listQty || 1, min: 0, unit: it.unit })
-        + (bs.length ? F.select({ name: 'budgetId', label: 'Categoría del gasto', value: D.defaultBudgetFor(it.category), options: bs.map((b) => [b.id, `${b.emoji} ${b.name}`]) }) : '')
-        + F.select({ name: 'by', label: 'Comprado por', value: D.meId() || '', options: [['', '—'], ...D.members().map((m) => [m.id, m.name])] }),
-      footer: 'Lo comprado se suma a la despensa. Si indicas un importe, se anota también como gasto en Finanzas.',
-    });
+  const t = { currency: D.BASE, accountId: D.defaultAccountId(), categoryId: D.defaultBudgetFor(it.category), by: D.meId() || '', date: today(), desc: it.name };
+  const body = group({ body: F.stepper({ name: 'qty', label: 'Cantidad comprada', value: it.listQty || 1, min: 0, unit: it.unit }) })
+    + paymentBody({ kind: 'expense', t, label: 'Importe (opcional)' })
+    + '<p class="footnote">Lo comprado se suma a la despensa. Si indicas un importe, se descuenta de la cuenta elegida y se anota como gasto en Finanzas.</p>';
   openSheet({
     title: it.name,
     body,
     doneLabel: 'Comprado',
-    onDone(v) {
-      D.markBought(id, { qty: parseAmount(v.qty), amount: parseAmount(v.amount), budgetId: v.budgetId, by: v.by || null });
+    onMount(api) {
+      bindPayment(api, { kind: 'expense' });
+      // el concepto lo pone el artículo
+      api.body.querySelector('[name=desc]')?.closest('.row')?.remove();
+    },
+    onDone(v, api) {
+      const p = readPayment(v, api, { optional: true });
+      if (!p) return false;
+      D.markBought(id, { qty: parseAmount(v.qty), amount: p.amount, currency: p.currency, rate: p.rate, accountId: v.accountId, categoryId: v.categoryId, by: v.by || null });
+      if (p.amount) D.addCurrencyToAccount(v.accountId, p.currency);
       toast(`${it.name}: comprado`);
     },
   });
@@ -141,8 +145,8 @@ export const shoppingActions = {
   'edit-item': (el) => openItemSheet(el.dataset.id),
   bill() {
     const ps = D.unbilledPurchases();
-    const { budgetId, desc } = D.billSummary(ps);
-    openExpenseSheet(null, { desc, budgetId, purchaseIds: ps.map((p) => p.id) });
+    const { categoryId, desc } = D.billSummary(ps);
+    openExpenseSheet(null, { desc, categoryId, purchaseIds: ps.map((p) => p.id) });
   },
   'dismiss-bill': () => D.dismissPurchases(D.unbilledPurchases().map((p) => p.id)),
 };
@@ -230,7 +234,7 @@ function historyView() {
         lead: avatar(m, 'sm'),
         title: esc(p.name),
         sub: `${esc(qtyLabel(p.qty, p.unit))}<span class="dot">·</span>${esc(m?.name || 'Alguien')}`,
-        trail: p.expenseId && store.get('expenses', p.expenseId) ? `<span class="muted-icon" title="Con gasto">${icon('receipt')}</span>` : '',
+        trail: p.expenseId && (store.get('txns', p.expenseId) || store.get('txns', `mig-${p.expenseId}`)) ? `<span class="muted-icon" title="Con gasto">${icon('receipt')}</span>` : '',
         action: p.itemId && store.get('items', p.itemId) ? 'edit-item' : '', id: p.itemId,
       });
     }).join(''),

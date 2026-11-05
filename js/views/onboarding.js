@@ -22,7 +22,7 @@ export default {
         <button type="button" class="glass glass-btn back" data-action="back" aria-label="Atrás">${icon('chevronLeft')}</button>
         <h1 class="large-title">Tu casa</h1>
         <p class="lead-text">Podrás cambiar todo esto más adelante en Ajustes.</p>
-        ${group({ body: F.text({ name: 'house', label: 'Nombre', value: state.house, placeholder: 'Casa', attrs: 'autocapitalize="sentences"' }) + F.select({ name: 'currency', label: 'Moneda', value: state.currency, options: D.CURRENCIES }) })}
+        ${group({ body: F.text({ name: 'house', label: 'Nombre', value: state.house, placeholder: 'Casa', attrs: 'autocapitalize="sentences"' }) })}
         ${group({ header: 'Tu nombre', body: F.text({ name: 'me', value: state.me, placeholder: 'Tu nombre', attrs: 'autocapitalize="words" autocomplete="given-name"' }) })}
         ${group({
           header: 'Quién más vive contigo',
@@ -38,7 +38,7 @@ export default {
       <div class="features">
         ${feature('cart', 'blue', 'Compras y despensa', 'Una lista de la compra compartida y lo que queda de cada cosa en casa.')}
         ${feature('checklist', 'orange', 'Tareas del hogar', 'Reparte las tareas, asígnalas y turnaos las que se repiten.')}
-        ${feature('wallet', 'green', 'Presupuesto', 'Anota los gastos de la casa y mira cuánto queda cada mes.')}
+        ${feature('wallet', 'green', 'Presupuesto', 'Cuentas en CUP, USD y otras monedas, con las tasas de elTOque.')}
         ${feature('sync', 'indigo', 'Sincronizado', 'Todos los dispositivos de la casa ven la misma información.')}
       </div>
       <div class="onb-actions">
@@ -70,7 +70,7 @@ export default {
         alertDialog('Falta tu nombre', 'Escribe tu nombre para continuar.');
         return;
       }
-      D.createHousehold({ name: state.house, myName: state.me, others: state.others, currency: state.currency });
+      D.createHousehold({ name: state.house, myName: state.me, others: state.others });
       app.go('home', { top: true });
     },
   },
@@ -79,6 +79,5 @@ export default {
     if (n === 'house' || n === 'me') state[n] = e.target.value;
     else if (n?.startsWith('other-')) state.others[Number(n.slice(6))] = e.target.value;
   },
-  onChange(e) { if (e.target.name === 'currency') state.currency = e.target.value; },
 };
 

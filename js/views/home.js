@@ -2,12 +2,12 @@
 import { store } from '../store.js';
 import { app } from '../app.js';
 import * as D from '../domain.js';
-import { esc, fmtLongDate, fmtMoney, today, monthOf, timeAgo, fmtMonth, isIOS, isStandalone, fmtQty } from '../util.js';
+import { esc, fmtLongDate, fmtCur, today, monthOf, timeAgo, fmtMonth, isIOS, isStandalone, fmtQty } from '../util.js';
 import { icon } from '../icons.js';
-import { largeTitle, section, group, row, avatar, check, progress } from '../ui.js';
+import { largeTitle, section, group, row, avatar, check } from '../ui.js';
 import { unbilledBanner, shoppingActions, openItemSheet } from './shopping.js';
 import { openTaskSheet, taskRow, completeWithFeedback } from './tasks.js';
-import { openExpenseSheet } from './money.js';
+import { openExpenseSheet, totalsCard } from './money.js';
 import { syncIndicator, openInstallSheet } from './settings.js';
 
 function tile({ tab, seg, color, ic, label, value, sub = '' }) {
@@ -31,7 +31,6 @@ export default {
     const overdue = pending.filter((t) => t.due && t.due < t0).length;
     const mine = pending.filter((t) => t.assignee === me).length;
     const s = D.monthSummary(monthOf(t0));
-    const cur = D.currency();
     const meName = me ? D.memberName(me) : '';
 
     const install = isIOS && !isStandalone() && !store.meta.installHint ? `<div class="banner">
@@ -47,15 +46,10 @@ export default {
       ${tile({ tab: 'tasks', seg: 'pending', color: 'red', ic: 'calendar', label: 'Para hoy', value: due.length })}
     </div>`;
 
-    const pct = s.totalBudget ? (s.totalSpent / s.totalBudget) * 100 : 0;
     const budget = `<button type="button" class="card budget-card" data-action="go" data-tab="money">
-      <div class="bc-top"><span class="itile c-green">${icon('wallet')}</span><span class="bc-title">${esc(fmtMonth(s.month, false))}</span><span class="chev">${icon('chevronRight')}</span></div>
-      ${s.totalBudget
-        ? `<div class="bc-value ${s.remaining < 0 ? 'neg' : ''}">${esc(fmtMoney(Math.abs(s.remaining), cur))}<small>${s.remaining < 0 ? 'por encima del presupuesto' : 'disponibles'}</small></div>
-           ${progress(pct, pct > 100 ? 'red' : pct > 85 ? 'orange' : 'green')}
-           <div class="bc-sub">Gastado ${esc(fmtMoney(s.totalSpent, cur))} de ${esc(fmtMoney(s.totalBudget, cur))}</div>`
-        : `<div class="bc-value">${esc(fmtMoney(s.totalSpent, cur))}<small>gastado este mes</small></div>
-           <div class="bc-sub">Define un presupuesto en Finanzas para saber cuánto queda.</div>`}
+      <div class="bc-top"><span class="itile c-green">${icon('wallet')}</span><span class="bc-title">Dinero de la casa</span>${D.rateOf('USD') ? `<span class="bc-rate">1 USD = ${esc(fmtCur(D.rateOf('USD')))}</span>` : ''}<span class="chev">${icon('chevronRight')}</span></div>
+      <div class="bc-body">${totalsCard({ compact: true })}</div>
+      <div class="bc-sub">Gastado en ${esc(fmtMonth(s.month, false).toLowerCase())}: <b>${esc(fmtCur(s.spent.cup))}</b>${s.spent.usd != null && s.spent.cup ? ` <span class="muted">(≈ ${esc(fmtCur(s.spent.usd, 'USD'))})</span>` : ''}</div>
     </button>`;
 
     const quick = `<div class="quick-actions">

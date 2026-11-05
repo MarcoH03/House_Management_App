@@ -22,6 +22,7 @@ const ASSETS = [
   './js/views/money.js',
   './js/views/settings.js',
   './js/views/onboarding.js',
+  './js/rates.js',
   './icons/icon.svg',
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -48,6 +49,7 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return; // la API de GitHub va siempre por red
+  if (url.pathname.endsWith('/rates.json')) return; // las tasas siempre por red
   e.respondWith((async () => {
     const cache = await caches.open(VERSION);
     const hit = await cache.match(req, { ignoreSearch: true }) ||
