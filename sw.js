@@ -1,7 +1,7 @@
 // Service worker: guarda la app para usarla sin conexión.
 // VERSION es una huella del contenido de la app (tools/stamp-version.mjs):
 // cambia con cualquier archivo, y así cada versión nueva se instala entera.
-const VERSION = 'hogar-6dfa82094d';
+const VERSION = 'hogar-4446f9c528';
 const ASSETS = [
   './',
   './index.html',

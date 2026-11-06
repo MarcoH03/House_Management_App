@@ -47,9 +47,9 @@ export default {
     </div>`;
 
     const budget = `<button type="button" class="card budget-card" data-action="go" data-tab="money">
-      <div class="bc-top"><span class="itile c-green">${icon('wallet')}</span><span class="bc-title">Dinero de la casa</span>${D.rateOf('USD') ? `<span class="bc-rate">1 USD = ${esc(fmtCur(D.rateOf('USD')))}</span>` : ''}<span class="chev">${icon('chevronRight')}</span></div>
+      <div class="bc-top"><span class="itile c-green">${icon('wallet')}</span><span class="bc-title">Dinero de la casa</span><span class="chev">${icon('chevronRight')}</span></div>
       <div class="bc-body">${totalsCard({ compact: true })}</div>
-      <div class="bc-sub">Gastado en ${esc(fmtMonth(s.month, false).toLowerCase())}: <b>${esc(fmtCur(s.spent.cup))}</b>${s.spent.usd != null && s.spent.cup ? ` <span class="muted">(≈ ${esc(fmtCur(s.spent.usd, 'USD'))})</span>` : ''}</div>
+      ${s.spent.cup ? `<div class="bc-sub">Este mes se han gastado <b>${esc(fmtCur(s.spent.cup))}</b></div>` : ''}
     </button>`;
 
     const quick = `<div class="quick-actions">

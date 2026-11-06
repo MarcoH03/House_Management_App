@@ -9,7 +9,7 @@ import { icon } from '../icons.js';
 import { largeTitle, group, row, F, avatar, iconTile } from '../ui.js';
 import { openSheet, confirmDialog, alertDialog, toast, actionSheet } from '../overlays.js';
 
-const VERSION = '1.2';
+const VERSION = '1.3';
 
 /* ---------- Estado de sincronización ---------- */
 

@@ -682,3 +682,19 @@ label.row { cursor: text; }
 .tchip-input { height: 32px; width: 140px; border-radius: 16px; border: 1.5px solid var(--tint); background: transparent; padding: 0 12px; font-size: 15px; outline: none; color: var(--label); }
 .ttags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .ttag { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 6px; color: var(--label); background: color-mix(in srgb, var(--c) 18%, transparent); }
+
+/* ---------- Simplificación de Finanzas ---------- */
+
+.group-header .opt { font-weight: 400; color: var(--label3); }
+.money-hint { line-height: 1.5; }
+.money-hint b { color: var(--label); font-weight: 600; }
+.hint-link { color: var(--tint); font-size: 14px; font-weight: 500; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--tint) 35%, transparent); text-underline-offset: 3px; }
+.cur-chips-label { font-size: 14px; color: var(--label2); align-self: center; margin-right: 2px; }
+.acc-bals { display: grid; gap: 2px; margin: 14px 0 6px; }
+.acc-bal { font-family: var(--font-round); font-size: 28px; font-weight: 700; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.acc-bal .flag { font-size: 22px; margin-right: 8px; vertical-align: 2px; }
+.acc-bal.neg { color: var(--red); }
+.acc-hero .link-btn { display: inline-flex; align-items: center; gap: 4px; }
+.acc-hero .link-btn .i { width: 16px; height: 16px; stroke-width: 2.4; }
+.sum-usd { font-size: 17px; }
+.acts.three { grid-template-columns: repeat(3, 1fr); }

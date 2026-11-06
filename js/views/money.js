@@ -1,5 +1,6 @@
 // Finanzas: cuentas con saldo en varias monedas, entradas, gastos,
-// transferencias y cambios de moneda. Todo se resume en CUP (y en USD, más pequeño).
+// transferencias y cambios de moneda. Todo se resume en CUP; el equivalente en
+// dólares aparece solo en los totales, redondeado y en palabras («unos 58 USD»).
 import { store } from '../store.js';
 import { app } from '../app.js';
 import * as D from '../domain.js';
@@ -12,10 +13,16 @@ import { refreshRates, SOURCE_LABEL } from '../rates.js';
 const BASE = D.BASE;
 const state = { month: monthOf(today()) };
 
-const usdLine = (cup) => {
+/** Equivalencia en dólares redondeada y en palabras: «unos 58 USD». */
+export function usdWords(cup) {
   const r = D.rateOf('USD');
-  return r ? `≈ ${fmtCur(cup / r, 'USD')}` : '';
-};
+  if (!r || !cup) return '';
+  const usd = Math.abs(cup) / r;
+  if (usd < 1) return 'menos de 1 USD';
+  return `unos ${fmtCur(Math.round(usd), 'USD')}`;
+}
+const oneAccount = () => D.accounts().length <= 1;
+const usdRounded = (usd) => (Math.abs(usd) < 1 ? 'menos de 1 USD' : `unos ${fmtCur(Math.round(Math.abs(usd)), 'USD')}`);
 const allCurrencies = () => D.sortCurrencies([...D.CURRENCY_CATALOG.map((c) => c[0]), ...D.currenciesInUse()]);
 const curOptions = (list) => list.map((c) => [c, c]);
 const accountOptions = () => D.accounts().map((a) => [a.id, `${a.emoji} ${a.name}`]);
@@ -34,7 +41,7 @@ export function moneyHero({ label, amount = '', currency = BASE, currencies = al
 
 function rateRow(rate = '') {
   return `<label class="row field" data-rate-row><div class="row-lead">${iconTile('exchange', 'orange')}</div><div class="row-body">
-    <span class="field-label">Tasa <span class="muted" data-rate-label></span></span>
+    <span class="field-label" data-rate-label>Tasa</span>
     <input class="field-input right" name="rate" inputmode="decimal" autocomplete="off" value="${rate ? esc(fmtNum(rate)) : ''}" placeholder="0"><span class="suffix">CUP</span></div></label>`;
 }
 
@@ -44,19 +51,21 @@ function rateRow(rate = '') {
  */
 export function paymentBody({ kind, t, label }) {
   const isExp = kind === 'expense';
+  const accId = t.accountId || D.defaultAccountId();
   return moneyHero({ label, amount: t.amount, currency: t.currency || BASE })
     + group({
-      body: F.text({ name: 'desc', value: t.desc || '', placeholder: isExp ? 'Concepto (p. ej. Factura de la luz)' : 'Concepto (p. ej. Salario, remesa…)', attrs: 'autocapitalize="sentences" autocomplete="off"' })
-        + (D.accounts().length ? F.select({ name: 'accountId', label: isExp ? 'Pagar desde' : 'Cuenta', value: t.accountId || D.defaultAccountId(), options: accountOptions() }) : '')
+      body: F.text({ name: 'desc', value: t.desc || '', placeholder: isExp ? '¿En qué? (p. ej. Factura de la luz)' : '¿De dónde? (p. ej. Salario, remesa…)', attrs: 'autocapitalize="sentences" autocomplete="off"' })
+        + (oneAccount() ? '' : F.select({ name: 'accountId', label: isExp ? 'Pagar desde' : 'Guardar en', value: accId, options: accountOptions() }))
         + (isExp ? F.select({ name: 'categoryId', label: 'Categoría', value: t.categoryId || '', options: categoryOptions() }) : '')
         + F.date({ name: 'date', label: 'Fecha', value: t.date || today(), clearable: false })
-        + F.select({ name: 'by', label: isExp ? 'Pagado por' : 'Recibido por', value: t.by || '', options: memberOptions() }),
+        + F.select({ name: 'by', label: isExp ? 'Pagado por' : 'Recibido por', value: t.by || '', options: memberOptions() })
+        + (oneAccount() ? `<input type="hidden" name="accountId" value="${esc(accId)}">` : ''),
     })
-    + (isExp ? group({ header: 'Etiquetas', body: `<div class="pad">${tagPicker(t.tagIds || [], t.categoryId || '')}</div>`, footer: 'Agrupan los gastos dentro de cada categoría (p. ej. «Carne», «Aseo», «Cumpleaños»).' }) : '')
+    + (isExp ? group({ header: 'Etiquetas <span class="opt">(opcional)</span>', body: `<div class="pad">${tagPicker(t.tagIds || [], t.categoryId || '')}</div>` }) : '')
     + group({
       cls: 'rate-group',
       body: rateRow(t.currency && t.currency !== BASE ? t.rate : ''),
-      footer: `<span data-rate-foot></span>`,
+      footer: 'Cambiarla solo afecta a este movimiento.',
     });
 }
 
@@ -115,16 +124,16 @@ export function bindTagPicker(root) {
   root.querySelector('[name=categoryId]')?.addEventListener('change', redraw);
 }
 
-/** Lógica viva: tasa, equivalencia en CUP y saldo disponible. */
+/** Lógica viva: equivalencia en CUP, tasa (oculta salvo que se pida) y saldo disponible. */
 export function bindPayment(api, { kind, prev }) {
   const b = api.body;
   if (kind === 'expense') bindTagPicker(b);
   const rateGroup = b.querySelector('.rate-group');
   const rateIn = b.querySelector('[name=rate]');
   const hint = b.querySelector('[data-hint]');
-  const foot = b.querySelector('[data-rate-foot]');
   const label = b.querySelector('[data-rate-label]');
   let touched = !!prev;
+  let showRate = false;
   let lastCur = b.querySelector('[name=currency]').value;
   rateIn.addEventListener('input', () => { touched = true; });
   const upd = () => {
@@ -132,23 +141,33 @@ export function bindPayment(api, { kind, prev }) {
     const cur = v.currency;
     if (cur !== lastCur) { touched = !!(prev && prev.currency === cur); lastCur = cur; if (touched) rateIn.value = fmtNum(prev.rate); }
     const foreign = cur !== BASE;
-    rateGroup.hidden = !foreign;
     if (foreign && !touched) rateIn.value = D.rateOf(cur) ? fmtNum(D.rateOf(cur)) : '';
-    label.textContent = foreign ? `(1 ${cur})` : '';
     const amt = parseAmount(v.amount);
     const r = foreign ? parseAmount(rateIn.value) : 1;
-    const parts = [];
-    if (foreign) parts.push(r ? `≈ ${fmtCur(amt * r)}` : 'Indica la tasa de cambio');
+    rateGroup.hidden = !foreign || !(showRate || !r);
+    label.textContent = `1 ${cur} =`;
+    const lines = [];
+    if (foreign) {
+      lines.push(r
+        ? `${amt ? `Son <b>${esc(fmtCur(amt * r))}</b> · ` : ''}<button type="button" class="hint-link" data-show-rate>1 ${esc(cur)} = ${esc(fmtCur(r))}</button>`
+        : 'Escribe abajo a cuánto está el cambio');
+    }
     if (kind === 'expense' && v.accountId) {
       const acc = D.account(v.accountId);
       const have = (D.ledger()[v.accountId]?.[cur] || 0) + (prev && prev.accountId === v.accountId && prev.currency === cur ? prev.amount : 0);
-      parts.push(`<span class="${amt > have ? 'c-text-red' : ''}">Saldo en ${esc(acc?.name || 'la cuenta')}: ${esc(fmtCur(have, cur))}</span>`);
+      const where = oneAccount() ? '' : ` en ${acc?.name || 'la cuenta'}`;
+      lines.push(amt > have
+        ? `<span class="c-text-red">Solo hay ${esc(fmtCur(have, cur))}${esc(where)}</span>`
+        : `Hay ${esc(fmtCur(have, cur))}${esc(where)}`);
     }
-    hint.innerHTML = parts.join('<span class="dot"> · </span>');
-    foot.textContent = foreign
-      ? `${D.rateOf(cur) ? `Tasa actual: ${fmtCur(D.rateOf(cur))}. ` : ''}El movimiento se guarda con esta tasa y no cambiará aunque cambie el mercado.`
-      : '';
+    hint.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
   };
+  b.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-show-rate]')) return;
+    showRate = true;
+    upd();
+    rateIn.focus();
+  });
   b.addEventListener('input', upd);
   b.addEventListener('change', upd);
   upd();
@@ -185,7 +204,7 @@ function openPaymentSheet(kind, id, defaults = {}) {
   const isExp = kind === 'expense';
   openSheet({
     title: prev ? (isExp ? 'Gasto' : 'Entrada de dinero') : (isExp ? 'Nuevo gasto' : 'Entrada de dinero'),
-    body: paymentBody({ kind, t, label: isExp ? 'Importe del gasto' : 'Cantidad recibida' })
+    body: paymentBody({ kind, t, label: isExp ? '¿Cuánto costó?' : '¿Cuánto dinero entró?' })
       + (prev ? group({ body: F.button({ label: isExp ? 'Eliminar gasto' : 'Eliminar entrada', action: 'delete', cls: 'destructive' }) }) : ''),
     onMount(api) {
       bindPayment(api, { kind, prev });
@@ -229,7 +248,7 @@ export function openTransferSheet(id, defaults = {}) {
   const t = prev || { type: 'transfer', amount: 0, currency: BASE, accountId: from, toAccountId: accs.find((a) => a.id !== from)?.id, date: today(), desc: '', ...defaults };
   openSheet({
     title: 'Transferir',
-    body: moneyHero({ label: 'Cantidad a pasar', amount: t.amount, currency: t.currency })
+    body: moneyHero({ label: '¿Cuánto quieres pasar?', amount: t.amount, currency: t.currency })
       + group({
         body: F.select({ name: 'accountId', label: 'Desde', value: t.accountId, options: accountOptions(), lead: iconTile('expense', 'red') })
           + F.select({ name: 'toAccountId', label: 'Hacia', value: t.toAccountId, options: accountOptions(), lead: iconTile('income', 'green') })
@@ -242,7 +261,10 @@ export function openTransferSheet(id, defaults = {}) {
       const upd = () => {
         const v = api.values();
         const have = (D.ledger()[v.accountId]?.[v.currency] || 0) + (prev && prev.accountId === v.accountId && prev.currency === v.currency ? prev.amount : 0);
-        hint.innerHTML = `<span class="${parseAmount(v.amount) > have ? 'c-text-red' : ''}">Disponible: ${esc(fmtCur(have, v.currency))}</span>`;
+        const from = D.account(v.accountId)?.name || 'la cuenta';
+        hint.innerHTML = parseAmount(v.amount) > have
+          ? `<span class="c-text-red">Solo hay ${esc(fmtCur(have, v.currency))} en ${esc(from)}</span>`
+          : `Hay ${esc(fmtCur(have, v.currency))} en ${esc(from)}`;
       };
       api.body.addEventListener('input', upd);
       api.body.addEventListener('change', upd);
@@ -267,20 +289,20 @@ export function openExchangeSheet(id, defaults = {}) {
   const t = prev || { type: 'exchange', accountId: D.defaultAccountId(), currency: 'USD', amount: 0, toCurrency: BASE, toAmount: 0, date: today(), desc: '', ...defaults };
   const curs = allCurrencies();
   const sel = (name, value) => `<span class="cur-pick sm"><select name="${name}" aria-label="Moneda">${curs.map((c) => `<option value="${c}" ${c === value ? 'selected' : ''}>${D.curInfo(c).flag} ${c}</option>`).join('')}</select>${icon('chevronUpDown')}</span>`;
-  const body = (D.accounts().length ? group({ body: F.select({ name: 'accountId', label: 'Cuenta', value: t.accountId, options: accountOptions(), lead: iconTile('bank', 'blue') }) }) : '')
+  const body = (oneAccount() ? `<input type="hidden" name="accountId" value="${esc(t.accountId || '')}">` : group({ body: F.select({ name: 'accountId', label: 'Cuenta', value: t.accountId, options: accountOptions(), lead: iconTile('bank', 'blue') }) }))
     + `<div class="xchg">
-        <div class="xchg-side"><div class="xchg-label">Entregas</div>
+        <div class="xchg-side"><div class="xchg-label">Cambio</div>
           <div class="xchg-line"><input name="amount" class="xchg-input" inputmode="decimal" placeholder="0" autocomplete="off" value="${t.amount ? esc(fmtNum(t.amount)) : ''}">${sel('currency', t.currency)}</div>
           <div class="xchg-sub" data-have></div></div>
         <button type="button" class="xchg-swap glass" data-action="swap" aria-label="Intercambiar monedas">${icon('transfer')}</button>
-        <div class="xchg-side"><div class="xchg-label">Recibes</div>
+        <div class="xchg-side"><div class="xchg-label">Me dan</div>
           <div class="xchg-line"><input name="toAmount" class="xchg-input" inputmode="decimal" placeholder="0" autocomplete="off" value="${t.toAmount ? esc(fmtNum(t.toAmount)) : ''}">${sel('toCurrency', t.toCurrency)}</div>
           <div class="xchg-sub" data-rate></div></div>
       </div>`
     + group({
       body: F.date({ name: 'date', label: 'Fecha', value: t.date, clearable: false })
         + F.text({ name: 'desc', label: 'Nota', value: t.desc, placeholder: 'Opcional (p. ej. con quién)' }),
-      footer: 'Lo que recibes se calcula con la tasa actual. Si te dieron otra cantidad, escríbela: se guardará la tasa real del cambio.',
+      footer: 'La cantidad que te dan se calcula sola con la tasa del día. Si te dieron otra, escríbela.',
     })
     + (prev ? group({ body: F.button({ label: 'Eliminar cambio', action: 'delete', cls: 'destructive' }) }) : '');
 
@@ -304,13 +326,15 @@ export function openExchangeSheet(id, defaults = {}) {
         }
         const got = parseAmount(toIn.value);
         const have = (D.ledger()[v.accountId]?.[v.currency] || 0) + (prev && prev.accountId === v.accountId && prev.currency === v.currency ? prev.amount : 0);
-        b.querySelector('[data-have]').innerHTML = `<span class="${amt > have ? 'c-text-red' : ''}">Tienes ${esc(fmtCur(have, v.currency))}</span>`;
+        b.querySelector('[data-have]').innerHTML = amt > have
+          ? `<span class="c-text-red">Solo hay ${esc(fmtCur(have, v.currency))}</span>`
+          : `Hay ${esc(fmtCur(have, v.currency))}`;
         let rateText = '';
         if (amt && got && v.currency !== v.toCurrency) {
           rateText = v.toCurrency === BASE ? `1 ${v.currency} = ${fmtCur(got / amt)}`
             : v.currency === BASE ? `1 ${v.toCurrency} = ${fmtCur(amt / got)}`
               : `1 ${v.currency} = ${fmtCur(got / amt, v.toCurrency)}`;
-        } else if (!D.rateOf(v.currency) || !D.rateOf(v.toCurrency)) rateText = 'Falta la tasa de alguna moneda: escribe lo que recibes';
+        } else if (!D.rateOf(v.currency) || !D.rateOf(v.toCurrency)) rateText = 'Escribe cuánto te dan';
         b.querySelector('[data-rate]').textContent = rateText;
       };
       b.addEventListener('input', upd);
@@ -356,7 +380,7 @@ export async function openNewMovement(defaults = {}) {
     actions: [
       { label: 'Gasto', value: 'expense', icon: 'expense' },
       { label: 'Entrada de dinero', value: 'income', icon: 'income' },
-      { label: 'Transferir entre cuentas', value: 'transfer', icon: 'transfer' },
+      ...(oneAccount() ? [] : [{ label: 'Pasar dinero entre cuentas', value: 'transfer', icon: 'transfer' }]),
       { label: 'Cambiar moneda', value: 'exchange', icon: 'exchange' },
     ],
   });
@@ -369,28 +393,19 @@ export async function openNewMovement(defaults = {}) {
 /* ---------- Cuentas ---------- */
 
 function balanceText(bal) {
-  const parts = Object.entries(bal).map(([c, v]) => fmtCur(v, c));
-  return parts.length ? parts.join(' · ') : 'Sin saldo';
+  const parts = Object.entries(bal).filter(([, v]) => v !== 0).map(([c, v]) => fmtCur(v, c));
+  return parts.length ? parts.join(' · ') : 'Vacía';
 }
 
 export function openAccountSheet(id) {
   const a = D.account(id);
   if (!a) return;
   const bal = D.accountBalances(a);
-  const val = D.valuation(bal);
   const list = D.accountTxns(id, 30);
   const body = `<div class="acc-hero">${emojiTile(a.emoji, a.color, 'xl')}
-      <div class="acc-total">${esc(fmtCur(val.cup))}</div>
-      <div class="acc-usd">${val.usd != null ? esc(`≈ ${fmtCur(val.usd, 'USD')}`) : ''}</div></div>`
+      <div class="acc-bals">${Object.entries(bal).map(([c, v]) => `<div class="acc-bal ${v < 0 ? 'neg' : ''}"><span class="flag">${D.curInfo(c).flag}</span>${esc(fmtCur(v, c))}</div>`).join('')}</div>
+      <button type="button" class="link-btn" data-action="add-cur">${icon('plus')} Añadir otra moneda</button></div>`
     + actionButtons()
-    + group({
-      header: 'Saldo por moneda',
-      body: Object.entries(bal).map(([c, v]) => row({
-        lead: emojiTile(D.curInfo(c).flag, 'gray'),
-        title: esc(c), sub: esc(D.curInfo(c).name),
-        trail: `<div class="amt-col"><span class="amt ${v < 0 ? 'neg' : ''}">${esc(fmtCur(v, c))}</span>${c !== BASE && D.rateOf(c) ? `<span class="amt-sub">≈ ${esc(fmtCur(v * D.rateOf(c)))}</span>` : ''}</div>`,
-      })).join('') + row({ lead: `<span class="add-circle">${icon('plus')}</span>`, title: '<span class="tint">Añadir moneda</span>', action: 'add-cur' }),
-    })
     + (list.length ? group({ header: 'Últimos movimientos', body: list.map((t) => txnRow(t, id)).join('') }) : '')
     + group({ body: F.button({ label: 'Editar cuenta', action: 'edit' }) + F.button({ label: 'Eliminar cuenta', action: 'delete', cls: 'destructive' }) });
 
@@ -462,7 +477,7 @@ function sourceText(f) {
 export function ratePill() {
   const r = D.rateOf('USD');
   return `<button type="button" class="glass rate-pill" data-action="rates" aria-label="Tasa de cambio del dólar">${r
-    ? `<span class="rp-cur">USD</span><b>${esc(fmtNum(r))}</b><span class="rp-cur">CUP</span>`
+    ? `<span class="rp-cur">1 USD =</span><b>${esc(fmtNum(r))}</b><span class="rp-cur">CUP</span>`
     : '<span class="rp-cur">Fijar tasa USD</span>'}</button>`;
 }
 
@@ -585,48 +600,51 @@ function txnRow(t, ctxAccount = null) {
   const m = D.member(t.by);
   const cat = store.get('budgets', t.categoryId);
   let lead; let title; let sub; let trail;
-  const who = m ? `<span class="dot">·</span>${esc(m.name)}` : '';
+  const accName = !oneAccount() && acc ? acc.name : '';
+  const join = (...xs) => xs.filter(Boolean).map(esc).join('<span class="dot"> · </span>');
   if (t.type === 'expense') {
     lead = cat ? emojiTile(cat.emoji, cat.color) : `<span class="itile c-red">${icon('expense')}</span>`;
     title = esc(t.desc || cat?.name || 'Gasto');
     const tg = (t.tagIds || []).map((id) => D.tag(id)).filter(Boolean);
-    sub = `${esc(acc?.name || 'Cuenta eliminada')}${cat && t.desc ? `<span class="dot">·</span>${esc(cat.name)}` : ''}${who}${tg.length ? `<span class="ttags">${tg.map((g) => `<span class="ttag" style="--c:${chColor(g.color)}">${esc(g.name)}</span>`).join('')}</span>` : ''}`;
-    trail = `<span class="amt">${esc(fmtCur(-t.amount, t.currency))}</span>${t.currency !== BASE ? `<span class="amt-sub">${esc(fmtCur(t.cup))}</span>` : ''}`;
+    sub = join(t.desc ? cat?.name : '', accName)
+      + (tg.length ? `<span class="ttags">${tg.map((g) => `<span class="ttag" style="--c:${chColor(g.color)}">${esc(g.name)}</span>`).join('')}</span>` : '');
+    trail = `<span class="amt">${esc(fmtCur(-t.amount, t.currency))}</span>`;
   } else if (t.type === 'income') {
     lead = `<span class="itile c-green">${icon('income')}</span>`;
     title = esc(t.desc || 'Entrada de dinero');
-    sub = `${esc(acc?.name || 'Cuenta eliminada')}${who}`;
-    trail = `<span class="amt pos">${esc(fmtCur(t.amount, t.currency, { sign: true }))}</span>${t.currency !== BASE ? `<span class="amt-sub">${esc(fmtCur(t.cup))}</span>` : ''}`;
+    sub = join(accName || (m ? `Recibido por ${m.name}` : ''));
+    trail = `<span class="amt pos">${esc(fmtCur(t.amount, t.currency, { sign: true }))}</span>`;
   } else if (t.type === 'transfer') {
     lead = `<span class="itile c-blue">${icon('transfer')}</span>`;
-    title = esc(t.desc || 'Transferencia');
+    title = esc(t.desc || 'Paso entre cuentas');
     sub = `${esc(acc?.name || '?')} → ${esc(to?.name || '?')}`;
     const sign = ctxAccount ? (t.toAccountId === ctxAccount ? 1 : -1) : 0;
     trail = `<span class="amt ${sign > 0 ? 'pos' : ''}">${esc(fmtCur(sign ? sign * t.amount : t.amount, t.currency, { sign: sign > 0 }))}</span>`;
   } else {
     lead = `<span class="itile c-orange">${icon('exchange')}</span>`;
-    title = esc(t.desc || `Cambio ${t.currency} → ${t.toCurrency}`);
-    const r = t.toCurrency === BASE ? `1 ${t.currency} = ${fmtCur(t.rate)}` : t.currency === BASE && t.rate ? `1 ${t.toCurrency} = ${fmtCur(1 / t.rate)}` : '';
-    sub = `${esc(acc?.name || 'Cuenta eliminada')}${r ? `<span class="dot">·</span>${esc(r)}` : ''}`;
-    trail = `<span class="amt">${esc(fmtCur(-t.amount, t.currency))}</span><span class="amt-sub pos">${esc(fmtCur(t.toAmount, t.toCurrency, { sign: true }))}</span>`;
+    title = esc(t.desc || 'Cambio de moneda');
+    sub = `${esc(fmtCur(t.amount, t.currency))} → ${esc(fmtCur(t.toAmount, t.toCurrency))}`;
+    trail = '';
   }
-  return row({ lead, title, sub, trail: `<div class="amt-col">${trail}</div>`, action: 'open-txn', id: t.id });
+  return row({ lead, title, sub, trail, action: 'open-txn', id: t.id });
 }
 
 function actionButtons() {
   const b = (action, ic, color, label) => `<button type="button" class="act" data-action="${action}"><span class="act-icon c-${color}">${icon(ic)}</span><span>${label}</span></button>`;
-  return `<div class="acts">${b('mv-expense', 'expense', 'red', 'Gasto')}${b('mv-income', 'income', 'green', 'Entrada')}${b('mv-transfer', 'transfer', 'blue', 'Transferir')}${b('mv-exchange', 'exchange', 'orange', 'Cambiar')}</div>`;
+  const many = !oneAccount();
+  return `<div class="acts ${many ? '' : 'three'}">${b('mv-expense', 'expense', 'red', 'Gasto')}${b('mv-income', 'income', 'green', 'Entrada')}${many ? b('mv-transfer', 'transfer', 'blue', 'Transferir') : ''}${b('mv-exchange', 'exchange', 'orange', 'Cambiar moneda')}</div>`;
 }
 
 export function totalsCard({ compact = false } = {}) {
   const tot = D.totals();
-  const chips = Object.entries(tot.byCur).filter(([, v]) => v !== 0);
-  const foreign = chips.some(([c]) => c !== BASE);
+  const held = Object.entries(tot.byCur).filter(([, v]) => v !== 0);
+  const foreign = held.some(([c]) => c !== BASE);
+  const usd = tot.cup > 0 ? usdWords(tot.cup) : '';
   return `<div class="sum-label">Disponible</div>
     <div class="sum-value ${tot.cup < 0 ? 'neg' : ''}">${esc(fmtCur(tot.cup))}</div>
-    ${tot.usd != null ? `<div class="sum-usd">≈ ${esc(fmtCur(tot.usd, 'USD'))}</div>` : ''}
-    ${!compact && chips.length ? `<div class="cur-chips">${chips.map(([c, v]) => `<span class="cur-chip">${D.curInfo(c).flag} ${esc(fmtCur(v, c))}</span>`).join('')}</div>` : ''}
-    ${!compact && foreign ? `<div class="sum-note">${tot.missing.length ? `Falta la tasa de ${esc(tot.missing.join(', '))}. ` : ''}Las divisas se valoran al cambio actual${D.rateOf('USD') ? ` (1 USD = ${esc(fmtCur(D.rateOf('USD')))})` : ''}.</div>` : ''}`;
+    ${usd ? `<div class="sum-usd">${esc(usd)}</div>` : ''}
+    ${!compact && foreign ? `<div class="cur-chips"><span class="cur-chips-label">Tienes</span>${held.map(([c, v]) => `<span class="cur-chip">${D.curInfo(c).flag} ${esc(fmtCur(v, c))}</span>`).join('')}</div>` : ''}
+    ${!compact && tot.missing.length ? `<div class="sum-note">Falta la tasa de ${esc(tot.missing.join(', '))}: tócala arriba para ponerla.</div>` : ''}`;
 }
 
 /* ---------- Desglose, estadísticas y gráficos ---------- */
@@ -646,8 +664,9 @@ function splitBar(parts) {
 function deltaBadge(delta, prevKey) {
   if (delta == null || !isFinite(delta)) return '';
   const r = Math.round(delta);
-  if (r === 0) return `<span class="delta same">= que en ${esc(fmtMonth(prevKey, false).toLowerCase())}</span>`;
-  return `<span class="delta ${r > 0 ? 'up' : 'down'}">${r > 0 ? '▲' : '▼'} ${Math.abs(r)} % vs ${esc(monthShort(prevKey).toLowerCase())}</span>`;
+  const m = esc(fmtMonth(prevKey, false).toLowerCase());
+  if (r === 0) return `<span class="delta same">Igual que en ${m}</span>`;
+  return `<span class="delta ${r > 0 ? 'up' : 'down'}">${r > 0 ? '▲' : '▼'} ${Math.abs(r)} % ${r > 0 ? 'más' : 'menos'} que en ${m}</span>`;
 }
 
 /**
@@ -672,15 +691,14 @@ function columnChart(series, { color = 'blue', selected, action = 'pick-month', 
 function categorySection(month) {
   const br = D.categoryBreakdown(month);
   if (!br.rows.length) return '';
-  const prevKey = D.prevMonth(month);
   const parts = br.rows.map((r) => ({ value: r.cup, color: r.cat?.color || 'gray', label: r.cat?.name || 'Sin categoría' }));
   const rows = br.rows.map((r) => {
     const n = D.tagBreakdown(month, r.id).list.length;
     return row({
       lead: r.cat ? emojiTile(r.cat.emoji, r.cat.color) : emojiTile('🧾', 'gray'),
       title: esc(r.cat?.name || 'Sin categoría'),
-      sub: `<span>${Math.round(r.pct)} %</span><span class="dot">·</span><span>${n} ${n === 1 ? 'gasto' : 'gastos'}</span>${deltaBadge(r.delta, prevKey)}`,
-      trail: `<div class="amt-col"><span class="amt">${esc(fmtCur(r.cup))}</span><span class="amt-sub">${esc(usdLine(r.cup))}</span></div>`,
+      sub: `${n} ${n === 1 ? 'gasto' : 'gastos'}`,
+      trail: `<div class="amt-col"><span class="amt">${esc(fmtCur(r.cup))}</span><span class="amt-sub">${Math.round(r.pct)} %</span></div>`,
       action: 'open-cat', id: r.id, chevron: true, cls: 'tall',
     });
   }).join('');
@@ -692,24 +710,43 @@ function categorySection(month) {
   });
 }
 
-function insightsSection(month) {
-  const st = D.monthStats(month);
-  const series = D.spendSeries(month, 6);
-  const prev = series[series.length - 2]?.cup || 0;
-  const delta = prev ? ((st.total - prev) / prev) * 100 : null;
-  const tile = (label, value, sub = '') => `<div class="kpi"><span class="kpi-label">${label}</span><span class="kpi-value">${value}</span><span class="kpi-sub">${sub || '&nbsp;'}</span></div>`;
-  const cup = (n) => `${esc(fmtCur(n).replace(/\u00a0CUP$/, ''))}<small>CUP</small>`;
-  const tiles = st.count ? `<div class="kpis">
-      ${tile('Media diaria', cup(st.avgDaily), esc(usdLine(st.avgDaily)))}
-      ${st.projection != null
-        ? tile('Previsión', cup(st.projection), st.daysLeft ? `Quedan ${st.daysLeft} días` : 'Último día')
-        : tile('Gastos anotados', String(st.count), deltaBadge(delta, D.prevMonth(month)))}
-      ${st.biggest ? tile('Mayor gasto', cup(st.biggest.cup), esc(st.biggest.desc || store.get('budgets', st.biggest.categoryId)?.name || 'Gasto')) : ''}
-    </div>` : '';
-  const avg = series.filter((p) => p.cup).reduce((a, p, _, arr) => a + p.cup / arr.length, 0);
-  return tiles + `<section class="group"><div class="group-header"><span>Últimos 6 meses</span><span class="src">${avg ? `Media mensual ${esc(fmtCur(Math.round(avg)))}` : ''}</span></div>
-    <div class="card chart-card">${columnChart(series, { color: 'blue', selected: month })}</div>
-    <div class="group-footer">Toca un mes para verlo.</div></section>`;
+/** Estadísticas del mes en lenguaje sencillo, en una hoja aparte para no recargar Finanzas. */
+export function openStatsSheet(month) {
+  let m = month;
+  const render = () => {
+    const st = D.monthStats(m);
+    const prevKey = D.prevMonth(m);
+    const prev = D.spentIn(prevKey);
+    const delta = prev ? ((st.total - prev) / prev) * 100 : null;
+    const series = D.spendSeries(m, 6);
+    const avg = series.filter((p) => p.cup).reduce((a, p, _, arr) => a + p.cup / arr.length, 0);
+    const s = D.monthSummary(m);
+    const amt = (n) => `<span class="amt">${esc(fmtCur(n))}</span>`;
+    const facts = st.count ? group({
+      header: esc(fmtMonth(m)),
+      body: row({ title: 'Gastado en total', trail: amt(st.total) })
+        + row({ title: 'Gasto medio por día', trail: amt(st.avgDaily) })
+        + (st.projection != null ? row({ title: 'Si se sigue gastando así', sub: 'Lo que se habrá gastado a fin de mes', trail: amt(st.projection) }) : '')
+        + (st.biggest ? row({ title: 'El gasto más grande', sub: esc(st.biggest.desc || store.get('budgets', st.biggest.categoryId)?.name || 'Gasto'), trail: amt(st.biggest.cup) }) : '')
+        + (delta != null ? row({ title: `Comparado con ${esc(fmtMonth(prevKey, false).toLowerCase())}`, trail: deltaBadge(delta, prevKey).replace(/ que en [^<]*/, '') }) : ''),
+    }) : empty({ icon: 'receipt', title: 'Sin gastos este mes', text: 'Toca otro mes en el gráfico.' });
+
+    const people = Object.entries(s.byMember).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+    const peopleGroup = people.length && D.members().length > 1 ? group({
+      header: 'Quién ha pagado',
+      body: people.map(([id, v]) => row({ lead: avatar(D.member(id), 'sm'), title: esc(D.member(id)?.name || 'Sin indicar'), trail: amt(v) })).join(''),
+    }) : '';
+
+    return `<section class="group"><div class="group-header"><span>Lo gastado cada mes</span><span class="src">${avg ? `Media ${esc(fmtCur(Math.round(avg)))}` : ''}</span></div>
+      <div class="card chart-card">${columnChart(series, { color: 'blue', selected: m, action: 'stats-month' })}</div>
+      <div class="group-footer">Toca un mes para ver sus cifras.</div></section>`
+      + facts + peopleGroup;
+  };
+  openSheet({
+    title: 'Estadísticas',
+    body: render(),
+    actions: { 'stats-month'(el, api) { m = el.dataset.month; api.setBody(render()); } },
+  });
 }
 
 /** Detalle de una categoría: desglose por etiquetas, evolución y sus gastos. */
@@ -727,8 +764,8 @@ export function openCategoryDetail(catId, month) {
     const share = monthTotal ? Math.round((br.total / monthTotal) * 100) : 0;
     const hero = `<div class="acc-hero">${cat ? emojiTile(cat.emoji, cat.color, 'xl') : emojiTile('🧾', 'gray', 'xl')}
       <div class="acc-total">${esc(fmtCur(br.total))}</div>
-      <div class="acc-usd">${esc(usdLine(br.total))}</div>
-      <div class="hero-meta">${esc(fmtMonth(m))}${br.total ? ` · ${share} % del gasto del mes` : ''}${deltaBadge(delta, prevKey)}</div></div>`;
+      <div class="hero-meta">${br.total ? `${share} % de lo gastado en ${esc(fmtMonth(m, false).toLowerCase())}` : esc(fmtMonth(m))}</div>
+      <div class="hero-meta">${deltaBadge(delta, prevKey)}</div></div>`;
 
     const tagRows = br.rows.map((r) => {
       const on = filter === r.id;
@@ -828,14 +865,11 @@ export default {
 
     const accRows = accs.map((a) => {
       const bal = D.accountBalances(a, led);
-      const val = D.valuation(bal);
-      const onlyBase = Object.keys(bal).every((c) => c === BASE);
       return row({
         lead: emojiTile(a.emoji, a.color),
         title: esc(a.name),
         sub: esc(balanceText(bal)),
-        trail: onlyBase ? '' : `<div class="amt-col"><span class="amt">≈ ${esc(fmtCur(val.cup))}</span>${val.usd != null ? `<span class="amt-sub">≈ ${esc(fmtCur(val.usd, 'USD'))}</span>` : ''}</div>`,
-        action: 'open-account', id: a.id, chevron: true, cls: 'tall',
+        action: 'open-account', id: a.id, chevron: true,
       });
     }).join('') + row({ lead: `<span class="add-circle">${icon('plus')}</span>`, title: '<span class="tint">Nueva cuenta</span>', action: 'new-account' });
 
@@ -845,17 +879,11 @@ export default {
       <button type="button" class="glass glass-btn sm" data-action="month" data-d="1" aria-label="Mes siguiente">${icon('chevronRight')}</button></div>`;
 
     const stat = (label, v, cls) => `<div class="stat"><span class="stat-label">${label}</span>
-      <span class="stat-value ${cls}">${esc(fmtCur(v.cup))}</span><span class="stat-usd">${v.usd != null && v.cup ? esc(`≈ ${fmtCur(v.usd, 'USD')}`) : '&nbsp;'}</span></div>`;
+      <span class="stat-value ${cls}">${esc(fmtCur(v.cup))}</span><span class="stat-usd">${v.usd && v.cup ? esc(usdRounded(v.usd)) : '&nbsp;'}</span></div>`;
     const stats = `<div class="stats">${stat('Entradas', s.income, 'pos')}${stat('Gastado', s.spent, '')}</div>`;
 
     const catSection = categorySection(state.month);
-    const insights = insightsSection(state.month);
-
-    const people = Object.entries(s.byMember).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
-    const peopleGroup = people.length && D.members().length > 1 ? group({
-      header: 'Quién ha pagado',
-      body: people.map(([id, v]) => row({ lead: avatar(D.member(id), 'sm'), title: esc(D.member(id)?.name || 'Sin indicar'), trail: `<span class="amt">${esc(fmtCur(v))}</span>` })).join(''),
-    }) : '';
+    const statsRow = s.spent.cup ? group({ body: row({ lead: iconTile('chart', 'indigo'), title: 'Ver estadísticas del mes', sub: 'Media por día, previsión y meses anteriores', action: 'stats', chevron: true }) }) : '';
 
     const byDate = groupBy(s.list, (t) => t.date);
     const movements = s.list.length
@@ -864,7 +892,7 @@ export default {
 
     return largeTitle('Finanzas') + hero + actionButtons()
       + group({ header: 'Cuentas', body: accRows })
-      + monthNav + stats + catSection + insights + peopleGroup
+      + monthNav + stats + catSection + statsRow
       + '<h2 class="sub-title">Movimientos</h2>' + movements;
   },
   actions: {
@@ -883,6 +911,6 @@ export default {
     'open-account': (el) => openAccountSheet(el.dataset.id),
     'new-account': () => openAccountEdit(null),
     'open-cat': (el) => openCategoryDetail(el.dataset.id, state.month),
-    'pick-month'(el) { state.month = el.dataset.month; app.render(); },
+    stats: () => openStatsSheet(state.month),
   },
 };
