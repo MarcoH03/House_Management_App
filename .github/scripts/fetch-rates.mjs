@@ -92,8 +92,16 @@ async function main() {
     try { result = await fromTelegram(); } catch (e) { console.log('Telegram falló:', e.message); }
   }
   if (!result) { console.log('No se obtuvieron tasas; no se publica rates.json'); return; }
+  // Si la tasa no ha cambiado, no se reescribe el archivo (evita commits vacíos).
+  try {
+    const prev = JSON.parse(readFileSync(out, 'utf8'));
+    if (prev.asOf === result.asOf && JSON.stringify(prev.rates) === JSON.stringify(result.rates)) {
+      console.log('Las tasas no han cambiado:', JSON.stringify(result.rates));
+      return;
+    }
+  } catch { /* no había archivo previo */ }
   result.fetchedAt = new Date().toISOString();
-  writeFileSync(out, JSON.stringify(result, null, 2));
+  writeFileSync(out, `${JSON.stringify(result, null, 2)}\n`);
   console.log('Tasas:', JSON.stringify(result));
 }
 

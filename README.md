@@ -16,9 +16,9 @@ El diseño sigue las Human Interface Guidelines de Apple: títulos grandes, list
 
 ## 1. Publicar la app en GitHub Pages
 
-1. Fusiona esta rama en `main`.
-2. En el repositorio: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-3. El workflow `.github/workflows/pages.yml` publica la app en cada push a `main`. La dirección será algo como `https://<tu-usuario>.github.io/House_Management_App/`.
+1. En el repositorio: **Settings → Pages → Build and deployment → Source: Deploy from a branch**, elige la rama de la app y la carpeta `/ (root)`.
+2. La app no necesita compilarse: Pages publica los archivos tal cual. La dirección será algo como `https://<tu-usuario>.github.io/House_Management_App/`.
+3. Para que las tasas se actualicen cada 4 horas, esa misma rama debe ser la **rama por defecto** (**Settings → General → Default branch**): GitHub solo ejecuta los workflows programados desde ella. Ver la sección 4.
 
 > GitHub Pages en cuentas gratuitas exige que el repositorio de la app sea público. No pasa nada: **el código es público pero los datos de tu casa no están aquí**, sino en otro repositorio privado (paso 3).
 
@@ -56,7 +56,7 @@ Cómo funciona por dentro:
 
 ### Cómo llegan las tasas automáticamente
 
-El workflow de Pages se ejecuta cada 4 horas, descarga la tasa representativa de elTOque y la publica como `rates.json` junto a la app. Cada dispositivo la lee al abrirse y la aplica si es más reciente que la que tiene.
+El workflow `.github/workflows/rates.yml` descarga la tasa representativa de elTOque, la guarda como `rates.json` en la rama publicada y pide a Pages que vuelva a publicar. Se ejecuta cada 4 horas (desde la rama por defecto), con cada push y a mano desde **Actions → Tasas de elTOque → Run workflow**. Solo crea un commit cuando la tasa cambia. Cada dispositivo lee `rates.json` al abrirse y la aplica si es más reciente que la que tiene.
 
 1. **Recomendado: API oficial de elTOque.** Pide un token gratuito en [tasas.eltoque.com](https://tasas.eltoque.com) y guárdalo en el repositorio de la app como secreto: **Settings → Secrets and variables → Actions → New repository secret**, nombre `ELTOQUE_API_TOKEN`. (Este es el uso correcto de los GitHub Secrets: los lee el Action, nunca la app.)
 2. **Sin token**, el Action lee el canal público de Telegram de elTOque (`t.me/s/eltoquecom`) y extrae la «Tasa representativa del mercado informal». Depende de que el canal siga publicándolas; la app muestra siempre la fecha y la fuente de la tasa para que sepas si está desfasada.
@@ -81,10 +81,14 @@ css/app.css                               Estilos (claro/oscuro)
 js/store.js                               Datos locales + fusión por registro
 js/sync.js                                Sincronización con GitHub
 js/rates.js                               Lectura de las tasas publicadas (rates.json)
+rates.json                                Última tasa de elTOque (la actualiza el workflow)
+tools/stamp-version.mjs                   Versión de la app según su contenido
 .github/scripts/fetch-rates.mjs           Descarga de tasas de elTOque (API o Telegram)
 js/domain.js                              Lógica de compras, tareas, cuentas y movimientos
 js/app.js, js/ui.js, js/overlays.js       Navegación, componentes, hojas y alertas
 js/views/*.js                             Pantallas
 ```
 
-El service worker usa una versión distinta en cada despliegue (`__BUILD__` se sustituye en el workflow), así el iPhone descarga la versión nueva automáticamente.
+La versión del service worker (`sw.js`) es una huella del contenido de la app. Después de cambiar cualquier archivo, ejecuta `node tools/stamp-version.mjs` (el workflow también lo hace en cada push): al cambiar `sw.js`, el iPhone descarga la versión nueva entera y recarga la app.
+
+Como el workflow puede añadir commits a la rama (tasas y versión), haz `git pull` antes de seguir trabajando.

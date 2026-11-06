@@ -1,0 +1,54 @@
+name: Tasas de elTOque
+
+# GitHub Pages publica la rama tal cual. Este workflow descarga la tasa de
+# elTOque, la guarda en rates.json dentro de la propia rama y pide a Pages
+# que vuelva a publicar. También deja al día la versión de la app (sw.js)
+# para que los iPhone descarguen los cambios.
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths-ignore: ['rates.json']
+  schedule:
+    # Cada 4 horas. GitHub solo ejecuta las programaciones desde la rama por defecto.
+    - cron: '23 */4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: rates-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Descargar tasas de elTOque
+        env:
+          ELTOQUE_API_TOKEN: ${{ secrets.ELTOQUE_API_TOKEN }}
+        run: node .github/scripts/fetch-rates.mjs rates.json
+      - name: Sellar la versión de la app
+        run: node tools/stamp-version.mjs
+      - name: Guardar y publicar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git add rates.json sw.js
+          if git diff --cached --quiet; then
+            echo "Nada que actualizar"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Actualizar tasas de elTOque"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          # Los push hechos con GITHUB_TOKEN no siempre disparan Pages: se pide la publicación.
+          curl -sS -X POST -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages/builds" || true

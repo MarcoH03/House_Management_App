@@ -57,7 +57,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') app.render('sync');
 });
 
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW', e));
   let reloading = false;

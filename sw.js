@@ -1,7 +1,7 @@
 // Service worker: guarda la app para usarla sin conexión.
-// __BUILD__ se sustituye en cada despliegue (ver .github/workflows/pages.yml),
-// así cada versión nueva se instala de forma atómica.
-const VERSION = 'hogar-__BUILD__';
+// VERSION es una huella del contenido de la app (tools/stamp-version.mjs):
+// cambia con cualquier archivo, y así cada versión nueva se instala entera.
+const VERSION = 'hogar-6dfa82094d';
 const ASSETS = [
   './',
   './index.html',
