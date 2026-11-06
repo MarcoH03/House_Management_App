@@ -5,6 +5,8 @@ import { uid, norm, today, addDays, addMonths, round2, monthOf, listNames } from
 /* ---------- Catálogos ---------- */
 
 export const COLORS = ['blue', 'green', 'orange', 'pink', 'purple', 'teal', 'indigo', 'red', 'yellow', 'mint', 'brown', 'gray'];
+/** Colores para categorías y etiquetas: el gris queda reservado para «Sin categoría» y «Sin etiqueta». */
+export const CHART_COLORS = ['green', 'blue', 'orange', 'teal', 'purple', 'red', 'indigo', 'pink', 'yellow', 'mint', 'brown'];
 
 export const SHOP_CATS = [
   { id: 'fruta', name: 'Frutas y verduras', emoji: '🥦' },
@@ -83,7 +85,7 @@ export const DEFAULT_BUDGETS = [
   { id: 'b-super', name: 'Supermercado', emoji: '🛒', color: 'green' },
   { id: 'b-limpieza', name: 'Limpieza y hogar', emoji: '🧽', color: 'blue' },
   { id: 'b-servicios', name: 'Facturas y servicios', emoji: '💡', color: 'orange' },
-  { id: 'b-mant', name: 'Mantenimiento', emoji: '🔧', color: 'gray' },
+  { id: 'b-mant', name: 'Mantenimiento', emoji: '🔧', color: 'teal' },
   { id: 'b-otros', name: 'Otros', emoji: '📦', color: 'purple' },
 ];
 
@@ -452,6 +454,8 @@ export function saveTxn(t) {
     rec.usdRate = Number(rec.usdRate) || prev?.usdRate || rateOf('USD') || (rec.currency === 'USD' ? r : 0);
     rec.cup = round2(amount * r);
   }
+  if (rec.type === 'expense') rec.tagIds = [...new Set((rec.tagIds || []).filter(Boolean))];
+  else delete rec.tagIds;
   if (rec.type === 'exchange') {
     rec.toAmount = round2(Math.abs(Number(rec.toAmount) || 0));
     rec.rate = amount ? rec.toAmount / amount : 0;
@@ -504,6 +508,8 @@ export function accountTxns(id, limit = 40) {
 
 export function migrateFinance() {
   if (!store.meta.onboarded) return;
+  const mant = store.get('budgets', 'b-mant');
+  if (mant && mant.color === 'gray') store.patch('budgets', 'b-mant', { color: 'teal' });
   const old = store.list('expenses');
   const needAcc = !Object.keys(store.data.accounts).length;
   const pending = old.filter((e) => !store.data.txns[`mig-${e.id}`]);
@@ -520,4 +526,113 @@ export function migrateFinance() {
       });
     }
   });
+}
+
+/* ---------- Etiquetas y estadísticas de gasto ---------- */
+
+export const tags = () => store.list('tags').sort((a, b) => a.name.localeCompare(b.name, 'es'));
+export const tag = (id) => store.get('tags', id);
+
+/** Crea (o reutiliza si ya existe con ese nombre) una etiqueta. */
+export function saveTag(t) {
+  const name = String(t.name || '').trim().replace(/^#/, '');
+  if (!name) return null;
+  const dup = tags().find((x) => norm(x.name) === norm(name) && x.id !== t.id);
+  if (dup && !t.id) return dup;
+  const used = new Set(tags().map((x) => x.color));
+  const color = t.color || CHART_COLORS.find((c) => !used.has(c)) || CHART_COLORS[tags().length % CHART_COLORS.length];
+  return store.put('tags', { ...t, name, color });
+}
+
+export function removeTag(id) {
+  store.batch(() => {
+    for (const t of txns()) if ((t.tagIds || []).includes(id)) store.patch('txns', t.id, { tagIds: t.tagIds.filter((x) => x !== id) });
+    store.remove('tags', id);
+  });
+}
+
+export const tagUsage = (id) => txns().filter((t) => (t.tagIds || []).includes(id)).length;
+
+/** Etiquetas ordenadas: primero las más usadas en esa categoría. */
+export function tagsForCategory(catId) {
+  const count = {};
+  for (const t of txns()) {
+    if (t.type !== 'expense') continue;
+    for (const id of t.tagIds || []) count[id] = (count[id] || 0) + (t.categoryId === catId ? 1000 : 1);
+  }
+  return tags().sort((a, b) => (count[b.id] || 0) - (count[a.id] || 0) || a.name.localeCompare(b.name, 'es'));
+}
+
+const expensesIn = (month, catId) => txns().filter((t) => t.type === 'expense' && monthOf(t.date) === month
+  && (catId === undefined || (store.get('budgets', t.categoryId) ? t.categoryId : '') === catId));
+
+export const spentIn = (month, catId) => round2(expensesIn(month, catId).reduce((s, t) => s + (t.cup || 0), 0));
+
+/** Gasto de los últimos n meses terminando en `month` (opcionalmente de una categoría). */
+export function spendSeries(month, n = 6, catId) {
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const m = shiftMonthKey(month, -i);
+    out.push({ month: m, cup: spentIn(m, catId) });
+  }
+  return out;
+}
+
+function shiftMonthKey(key, d) {
+  const [y, m] = key.split('-').map(Number);
+  const dt = new Date(y, m - 1 + d, 1);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}
+export const prevMonth = (key) => shiftMonthKey(key, -1);
+
+/** Desglose de categorías del mes, de mayor a menor, con la variación respecto al mes anterior. */
+export function categoryBreakdown(month) {
+  const prev = prevMonth(month);
+  const total = spentIn(month);
+  const ids = new Set(expensesIn(month).map((t) => (store.get('budgets', t.categoryId) ? t.categoryId : '')));
+  return {
+    total,
+    rows: [...ids].map((id) => {
+      const cup = spentIn(month, id);
+      const before = spentIn(prev, id);
+      return { id, cat: store.get('budgets', id), cup, pct: total ? (cup / total) * 100 : 0, prev: before, delta: before ? ((cup - before) / before) * 100 : null };
+    }).sort((a, b) => b.cup - a.cup),
+  };
+}
+
+/** Desglose de una categoría por etiquetas. Un gasto con varias etiquetas cuenta en cada una. */
+export function tagBreakdown(month, catId) {
+  const list = expensesIn(month, catId).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+  const total = round2(list.reduce((s, t) => s + (t.cup || 0), 0));
+  const sums = {};
+  const counts = {};
+  let overlap = false;
+  for (const t of list) {
+    const ids = (t.tagIds || []).filter((id) => tag(id));
+    if (ids.length > 1) overlap = true;
+    for (const id of ids.length ? ids : ['']) {
+      sums[id] = round2((sums[id] || 0) + (t.cup || 0));
+      counts[id] = (counts[id] || 0) + 1;
+    }
+  }
+  const rows = Object.entries(sums).map(([id, cup]) => ({ id, tag: tag(id), cup, count: counts[id], pct: total ? (cup / total) * 100 : 0 }))
+    .sort((a, b) => (a.id === '') - (b.id === '') || b.cup - a.cup);
+  return { list, total, rows, overlap };
+}
+
+/** Cifras rápidas del mes: media diaria, previsión, mayor gasto, nº de gastos. */
+export function monthStats(month) {
+  const list = expensesIn(month);
+  const total = round2(list.reduce((s, t) => s + (t.cup || 0), 0));
+  const [y, m] = month.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const cur = monthOf(today());
+  const elapsed = month === cur ? new Date().getDate() : month < cur ? daysInMonth : 0;
+  const biggest = list.reduce((b, t) => (!b || (t.cup || 0) > (b.cup || 0) ? t : b), null);
+  return {
+    total, count: list.length, biggest,
+    avgDaily: elapsed ? round2(total / elapsed) : 0,
+    projection: month === cur && elapsed ? round2((total / elapsed) * daysInMonth) : null,
+    daysLeft: month === cur ? daysInMonth - elapsed : 0,
+  };
 }

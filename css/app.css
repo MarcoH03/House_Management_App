@@ -625,3 +625,60 @@ label.row { cursor: text; }
 .bc-sub { margin-top: 8px; }
 .bc-sub b { color: var(--label); }
 .field-btn.loading { opacity: 0.5; pointer-events: none; }
+
+/* ---------- Desglose, etiquetas y gráficos ---------- */
+
+/* Tonos de gráfico en modo oscuro: validados contra la superficie #1c1c1e
+   (banda de luminosidad, separación para daltonismo y contraste). */
+@media (prefers-color-scheme: dark) {
+  :root { --ch-green: #2aa84a; --ch-orange: #c27400; --ch-teal: #2a9db2; }
+}
+
+.split-wrap { padding: 14px 16px 6px; }
+.split { display: flex; gap: 2px; height: 10px; border-radius: 5px; overflow: hidden; }
+.split span { display: block; min-width: 3px; }
+.swatch { width: 14px; height: 14px; border-radius: 50%; display: block; margin: 0 8px; }
+
+.delta { font-size: 13px; font-weight: 500; white-space: nowrap; }
+.row-sub .delta { flex-basis: 100%; }
+.delta.up { color: var(--red); }
+.delta.down { color: var(--green); }
+.delta.same { color: var(--label2); }
+.hero-meta { font-size: 14px; color: var(--label2); margin-top: 6px; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 8px; }
+.hero-meta .delta::before { content: none; }
+
+.row.selected { background: color-mix(in srgb, var(--tint) 9%, transparent); }
+.row.dim { opacity: 0.45; }
+
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: -12px 0 26px; }
+.kpi { background: var(--bg2); border-radius: 18px; padding: 12px; display: flex; flex-direction: column; min-width: 0; }
+.kpi-label { font-size: 12px; font-weight: 600; color: var(--label2); }
+.kpi-value { font-family: var(--font-round); font-size: 18px; font-weight: 700; margin-top: 4px; letter-spacing: 0; white-space: nowrap; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; line-height: 1.15; }
+.kpi-value small { font-family: var(--font); font-size: 11px; font-weight: 600; color: var(--label2); }
+.kpi-sub { font-size: 12px; color: var(--label2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kpi-sub .delta { font-size: 12px; }
+
+.chart-card { padding: 16px 12px 10px; }
+.chart-empty { font-size: 15px; color: var(--label2); text-align: center; padding: 24px 0; }
+.cols { display: flex; align-items: stretch; gap: 8px; height: 150px; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+.col-val { font-size: 11px; font-weight: 600; color: var(--label); text-align: center; white-space: nowrap; min-height: 14px; font-variant-numeric: tabular-nums; }
+.col-track { flex: 1; display: flex; align-items: flex-end; box-shadow: inset 0 -1px 0 var(--sep); }
+.col-bar { display: block; width: 100%; max-width: 34px; margin: 0 auto; background: var(--fill); border-radius: 4px 4px 0 0; transition: height 0.4s; }
+.col-label { font-size: 12px; color: var(--label2); text-align: center; text-transform: capitalize; }
+.col.on .col-label { color: var(--label); font-weight: 600; }
+.col:active .col-bar { opacity: 0.7; }
+
+.tchips { display: flex; flex-wrap: wrap; gap: 8px; }
+.tchip {
+  height: 32px; padding: 0 12px 0 10px; border-radius: 16px; background: var(--fill3); color: var(--label);
+  display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 500; transition: background 0.15s, color 0.15s;
+}
+.tchip i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.tchip.on { background: var(--c); color: #fff; }
+.tchip.on i { background: #fff; }
+.tchip.add { color: var(--tint); background: color-mix(in srgb, var(--tint) 13%, transparent); }
+.tchip.add .i { width: 15px; height: 15px; stroke-width: 2.6; }
+.tchip-input { height: 32px; width: 140px; border-radius: 16px; border: 1.5px solid var(--tint); background: transparent; padding: 0 12px; font-size: 15px; outline: none; color: var(--label); }
+.ttags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.ttag { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 6px; color: var(--label); background: color-mix(in srgb, var(--c) 18%, transparent); }

@@ -11,8 +11,8 @@ El diseño sigue las Human Interface Guidelines de Apple: títulos grandes, list
 | **Inicio** | Resumen: lo que falta por comprar, tareas de hoy, lo que queda del presupuesto del mes y la actividad reciente de la casa. |
 | **Compras** | *Lista*: añade cosas escribiendo y márcalas al comprarlas (se suman a la despensa). *Despensa*: cuántas quedan de cada cosa, con − / + y aviso de mínimo (se añade solo a la lista). *Historial*: qué se compró, cuándo y quién. Tras comprar, la app te pregunta cuánto costó para anotarlo como gasto. |
 | **Tareas** | Tareas con responsable, fecha y repetición (diaria, semanal, quincenal, mensual). Las que se repiten se reprograman solas y pueden **turnarse** entre los miembros. Filtro por persona. |
-| **Finanzas** | **Cuentas** (Casa, Ahorros…) con saldo en varias monedas a la vez (p. ej. 250 CUP y 50 USD). Entradas de dinero, gastos (eligiendo de qué cuenta y en qué moneda se paga), transferencias entre cuentas y cambios de moneda. Todo se resume en **CUP** y, más pequeño, en USD, con las tasas del mercado informal de **elTOque**. |
-| **Ajustes** | Nombre de la casa, miembros, tasas de cambio, categorías de gasto, sincronización, invitar a otros dispositivos, copia de seguridad (exportar/importar). |
+| **Finanzas** | **Cuentas** (Casa, Ahorros…) con saldo en varias monedas a la vez (p. ej. 250 CUP y 50 USD). Entradas de dinero, gastos (eligiendo de qué cuenta y en qué moneda se paga), transferencias entre cuentas y cambios de moneda. Todo se resume en **CUP** y, más pequeño, en USD, con las tasas del mercado informal de **elTOque**. Desglose del gasto por **categoría** y, dentro de cada una, por **etiquetas** (porcentaje de cada etiqueta), evolución de los últimos 6 meses, media diaria, previsión del mes y mayor gasto. |
+| **Ajustes** | Nombre de la casa, miembros, tasas de cambio, categorías de gasto, etiquetas, sincronización, invitar a otros dispositivos, copia de seguridad (exportar/importar). |
 
 ## 1. Publicar la app en GitHub Pages
 

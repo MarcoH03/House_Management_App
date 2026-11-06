@@ -5,7 +5,7 @@ import { app } from '../app.js';
 import * as D from '../domain.js';
 import { esc, fmtCur, fmtMonth, fmtDay, monthOf, shiftMonth, today, parseAmount, fmtNum, groupBy, round2, timeAgo, LOCALE } from '../util.js';
 import { icon } from '../icons.js';
-import { largeTitle, group, row, empty, glassBtn, F, emojiTile, progress, avatar, iconTile } from '../ui.js';
+import { largeTitle, group, row, empty, glassBtn, F, emojiTile, avatar, iconTile } from '../ui.js';
 import { openSheet, confirmDialog, toast, actionSheet, alertDialog } from '../overlays.js';
 import { refreshRates, SOURCE_LABEL } from '../rates.js';
 
@@ -52,6 +52,7 @@ export function paymentBody({ kind, t, label }) {
         + F.date({ name: 'date', label: 'Fecha', value: t.date || today(), clearable: false })
         + F.select({ name: 'by', label: isExp ? 'Pagado por' : 'Recibido por', value: t.by || '', options: memberOptions() }),
     })
+    + (isExp ? group({ header: 'Etiquetas', body: `<div class="pad">${tagPicker(t.tagIds || [], t.categoryId || '')}</div>`, footer: 'Agrupan los gastos dentro de cada categoría (p. ej. «Carne», «Aseo», «Cumpleaños»).' }) : '')
     + group({
       cls: 'rate-group',
       body: rateRow(t.currency && t.currency !== BASE ? t.rate : ''),
@@ -59,9 +60,65 @@ export function paymentBody({ kind, t, label }) {
     });
 }
 
+function tagChips(selected, catId) {
+  const sel = new Set(selected);
+  return D.tagsForCategory(catId).map((g) => `<button type="button" class="tchip ${sel.has(g.id) ? 'on' : ''}" style="--c:${chColor(g.color)}" data-tag="${g.id}" aria-pressed="${sel.has(g.id)}"><i></i>${esc(g.name)}</button>`).join('');
+}
+
+export function tagPicker(selected = [], catId = '') {
+  return `<div class="tagpick" data-tagpick><input type="hidden" name="tagIds" value="${esc(selected.join(','))}">
+    <div class="tchips" data-tchips>${tagChips(selected, catId)}<button type="button" class="tchip add" data-newtag>${icon('plus')}Nueva</button></div></div>`;
+}
+
+/** Comportamiento del selector de etiquetas (multiselección y creación en línea). */
+export function bindTagPicker(root) {
+  const box = root.querySelector('[data-tagpick]');
+  if (!box) return;
+  const hidden = box.querySelector('[name=tagIds]');
+  const ids = () => hidden.value.split(',').filter(Boolean);
+  const redraw = () => {
+    const catId = root.querySelector('[name=categoryId]')?.value || '';
+    box.querySelector('[data-tchips]').innerHTML = `${tagChips(ids(), catId)}<button type="button" class="tchip add" data-newtag>${icon('plus')}Nueva</button>`;
+  };
+  box.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-tag]');
+    if (chip) {
+      const cur = new Set(ids());
+      if (cur.has(chip.dataset.tag)) cur.delete(chip.dataset.tag); else cur.add(chip.dataset.tag);
+      hidden.value = [...cur].join(',');
+      chip.classList.toggle('on');
+      chip.setAttribute('aria-pressed', chip.classList.contains('on'));
+      return;
+    }
+    const add = e.target.closest('[data-newtag]');
+    if (!add) return;
+    add.outerHTML = '<input class="tchip-input" data-tag-input placeholder="Nombre" autocapitalize="sentences" autocomplete="off" enterkeyhint="done">';
+    const inp = box.querySelector('[data-tag-input]');
+    inp.focus();
+    let done = false;
+    const commit = () => {
+      if (done) return;
+      done = true;
+      const name = inp.value.trim();
+      if (name) {
+        const g = D.saveTag({ name });
+        if (g && !ids().includes(g.id)) hidden.value = [...ids(), g.id].join(',');
+      }
+      redraw();
+    };
+    inp.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); commit(); }
+      if (ev.key === 'Escape') { ev.stopPropagation(); inp.value = ''; commit(); }
+    });
+    inp.addEventListener('blur', commit);
+  });
+  root.querySelector('[name=categoryId]')?.addEventListener('change', redraw);
+}
+
 /** Lógica viva: tasa, equivalencia en CUP y saldo disponible. */
 export function bindPayment(api, { kind, prev }) {
   const b = api.body;
+  if (kind === 'expense') bindTagPicker(b);
   const rateGroup = b.querySelector('.rate-group');
   const rateIn = b.querySelector('[name=rate]');
   const hint = b.querySelector('[data-hint]');
@@ -139,7 +196,7 @@ function openPaymentSheet(kind, id, defaults = {}) {
       if (!p) return false;
       if (!v.accountId) { alertDialog('Crea una cuenta', 'Necesitas al menos una cuenta para anotar movimientos.'); return false; }
       store.batch(() => {
-        const saved = D.saveTxn({ ...t, ...p, type: kind, desc: v.desc.trim(), accountId: v.accountId, categoryId: isExp ? v.categoryId : undefined, date: v.date || today(), by: v.by || null });
+        const saved = D.saveTxn({ ...t, ...p, type: kind, desc: v.desc.trim(), accountId: v.accountId, categoryId: isExp ? v.categoryId : undefined, tagIds: isExp ? (v.tagIds || '').split(',').filter(Boolean) : undefined, date: v.date || today(), by: v.by || null });
         D.addCurrencyToAccount(v.accountId, p.currency);
         for (const pid of defaults.purchaseIds || []) store.patch('purchases', pid, { billed: true, expenseId: saved.id });
       });
@@ -487,7 +544,7 @@ export function openCategorySheet(id) {
     body: `<div class="hero-tile">${emojiTile(c.emoji, c.color, 'xl')}</div>`
       + group({ body: F.text({ name: 'name', value: c.name, placeholder: 'Nombre de la categoría', attrs: `autocapitalize="sentences"${prev ? '' : ' autofocus'}` }) })
       + group({ header: 'Icono', body: `<div class="pad">${F.picker({ name: 'emoji', value: c.emoji, options: D.BUDGET_EMOJIS, kind: 'emoji' })}</div>` })
-      + group({ header: 'Color', body: `<div class="pad">${F.picker({ name: 'color', value: c.color, options: D.COLORS })}</div>` })
+      + group({ header: 'Color', body: `<div class="pad">${F.picker({ name: 'color', value: c.color, options: D.CHART_COLORS })}</div>` })
       + (prev ? group({ body: F.button({ label: 'Eliminar categoría', action: 'delete', cls: 'destructive' }), footer: 'Los gastos de esta categoría quedarán como «Sin categoría».' }) : ''),
     onMount(api) {
       const tile = api.body.querySelector('.hero-tile');
@@ -532,7 +589,8 @@ function txnRow(t, ctxAccount = null) {
   if (t.type === 'expense') {
     lead = cat ? emojiTile(cat.emoji, cat.color) : `<span class="itile c-red">${icon('expense')}</span>`;
     title = esc(t.desc || cat?.name || 'Gasto');
-    sub = `${esc(acc?.name || 'Cuenta eliminada')}${cat && t.desc ? `<span class="dot">·</span>${esc(cat.name)}` : ''}${who}`;
+    const tg = (t.tagIds || []).map((id) => D.tag(id)).filter(Boolean);
+    sub = `${esc(acc?.name || 'Cuenta eliminada')}${cat && t.desc ? `<span class="dot">·</span>${esc(cat.name)}` : ''}${who}${tg.length ? `<span class="ttags">${tg.map((g) => `<span class="ttag" style="--c:${chColor(g.color)}">${esc(g.name)}</span>`).join('')}</span>` : ''}`;
     trail = `<span class="amt">${esc(fmtCur(-t.amount, t.currency))}</span>${t.currency !== BASE ? `<span class="amt-sub">${esc(fmtCur(t.cup))}</span>` : ''}`;
   } else if (t.type === 'income') {
     lead = `<span class="itile c-green">${icon('income')}</span>`;
@@ -571,6 +629,190 @@ export function totalsCard({ compact = false } = {}) {
     ${!compact && foreign ? `<div class="sum-note">${tot.missing.length ? `Falta la tasa de ${esc(tot.missing.join(', '))}. ` : ''}Las divisas se valoran al cambio actual${D.rateOf('USD') ? ` (1 USD = ${esc(fmtCur(D.rateOf('USD')))})` : ''}.</div>` : ''}`;
 }
 
+/* ---------- Desglose, estadísticas y gráficos ---------- */
+
+const chColor = (c) => `var(--ch-${c}, var(--${c}))`;
+const monthShort = (key) => fmtMonth(key, false).slice(0, 3);
+
+/** Barra segmentada fina (sin texto): las cifras van en la lista de al lado. */
+function splitBar(parts) {
+  const total = parts.reduce((a, p) => a + p.value, 0);
+  if (!total) return '';
+  return `<div class="split" role="img" aria-label="${esc(parts.map((p) => `${p.label}: ${Math.round((p.value / total) * 100)} %`).join(', '))}">${parts.filter((p) => p.value > 0)
+    .map((p) => `<span style="flex:${p.value} 1 0;background:${chColor(p.color)}" title="${esc(p.label)}"></span>`).join('')}</div>`;
+}
+
+/** Variación respecto al mes anterior: flecha + texto (nunca solo color). */
+function deltaBadge(delta, prevKey) {
+  if (delta == null || !isFinite(delta)) return '';
+  const r = Math.round(delta);
+  if (r === 0) return `<span class="delta same">= que en ${esc(fmtMonth(prevKey, false).toLowerCase())}</span>`;
+  return `<span class="delta ${r > 0 ? 'up' : 'down'}">${r > 0 ? '▲' : '▼'} ${Math.abs(r)} % vs ${esc(monthShort(prevKey).toLowerCase())}</span>`;
+}
+
+/**
+ * Columnas de los últimos meses. Énfasis: el mes elegido en color, el resto en gris.
+ * Tocar una columna elige ese mes.
+ */
+function columnChart(series, { color = 'blue', selected, action = 'pick-month', label = 'Gasto' }) {
+  const max = Math.max(...series.map((p) => p.cup), 0);
+  if (!max) return '<div class="chart-empty">Aún no hay gastos en estos meses.</div>';
+  const cols = series.map((p) => {
+    const h = p.cup ? Math.max(3, (p.cup / max) * 100) : 0;
+    const on = p.month === selected;
+    const text = `${fmtMonth(p.month)}: ${fmtCur(p.cup)}`;
+    return `<button type="button" class="col ${on ? 'on' : ''}" data-action="${action}" data-month="${p.month}" aria-label="${esc(`${label} ${text}`)}" title="${esc(text)}">
+      <span class="col-val">${on || p.cup === max ? esc(fmtCur(p.cup).replace(/ CUP$/, '')) : ''}</span>
+      <span class="col-track"><span class="col-bar" style="height:${h}%;${on ? `background:${chColor(color)}` : ''}"></span></span>
+      <span class="col-label">${esc(monthShort(p.month))}</span></button>`;
+  }).join('');
+  return `<div class="cols">${cols}</div>`;
+}
+
+function categorySection(month) {
+  const br = D.categoryBreakdown(month);
+  if (!br.rows.length) return '';
+  const prevKey = D.prevMonth(month);
+  const parts = br.rows.map((r) => ({ value: r.cup, color: r.cat?.color || 'gray', label: r.cat?.name || 'Sin categoría' }));
+  const rows = br.rows.map((r) => {
+    const n = D.tagBreakdown(month, r.id).list.length;
+    return row({
+      lead: r.cat ? emojiTile(r.cat.emoji, r.cat.color) : emojiTile('🧾', 'gray'),
+      title: esc(r.cat?.name || 'Sin categoría'),
+      sub: `<span>${Math.round(r.pct)} %</span><span class="dot">·</span><span>${n} ${n === 1 ? 'gasto' : 'gastos'}</span>${deltaBadge(r.delta, prevKey)}`,
+      trail: `<div class="amt-col"><span class="amt">${esc(fmtCur(r.cup))}</span><span class="amt-sub">${esc(usdLine(r.cup))}</span></div>`,
+      action: 'open-cat', id: r.id, chevron: true, cls: 'tall',
+    });
+  }).join('');
+  return group({
+    header: 'Gastos por categoría',
+    headerTrail: `<span class="src">${esc(fmtCur(br.total))}</span>`,
+    body: `<div class="split-wrap">${splitBar(parts)}</div>${rows}`,
+    footer: 'Toca una categoría para ver el desglose por etiquetas.',
+  });
+}
+
+function insightsSection(month) {
+  const st = D.monthStats(month);
+  const series = D.spendSeries(month, 6);
+  const prev = series[series.length - 2]?.cup || 0;
+  const delta = prev ? ((st.total - prev) / prev) * 100 : null;
+  const tile = (label, value, sub = '') => `<div class="kpi"><span class="kpi-label">${label}</span><span class="kpi-value">${value}</span><span class="kpi-sub">${sub || '&nbsp;'}</span></div>`;
+  const cup = (n) => `${esc(fmtCur(n).replace(/\u00a0CUP$/, ''))}<small>CUP</small>`;
+  const tiles = st.count ? `<div class="kpis">
+      ${tile('Media diaria', cup(st.avgDaily), esc(usdLine(st.avgDaily)))}
+      ${st.projection != null
+        ? tile('Previsión', cup(st.projection), st.daysLeft ? `Quedan ${st.daysLeft} días` : 'Último día')
+        : tile('Gastos anotados', String(st.count), deltaBadge(delta, D.prevMonth(month)))}
+      ${st.biggest ? tile('Mayor gasto', cup(st.biggest.cup), esc(st.biggest.desc || store.get('budgets', st.biggest.categoryId)?.name || 'Gasto')) : ''}
+    </div>` : '';
+  const avg = series.filter((p) => p.cup).reduce((a, p, _, arr) => a + p.cup / arr.length, 0);
+  return tiles + `<section class="group"><div class="group-header"><span>Últimos 6 meses</span><span class="src">${avg ? `Media mensual ${esc(fmtCur(Math.round(avg)))}` : ''}</span></div>
+    <div class="card chart-card">${columnChart(series, { color: 'blue', selected: month })}</div>
+    <div class="group-footer">Toca un mes para verlo.</div></section>`;
+}
+
+/** Detalle de una categoría: desglose por etiquetas, evolución y sus gastos. */
+export function openCategoryDetail(catId, month) {
+  let m = month;
+  let filter = null;
+  const render = () => {
+    const cat = store.get('budgets', catId);
+    const color = cat?.color || 'gray';
+    const br = D.tagBreakdown(m, catId);
+    const monthTotal = D.spentIn(m);
+    const prevKey = D.prevMonth(m);
+    const prev = D.spentIn(prevKey, catId);
+    const delta = prev ? ((br.total - prev) / prev) * 100 : null;
+    const share = monthTotal ? Math.round((br.total / monthTotal) * 100) : 0;
+    const hero = `<div class="acc-hero">${cat ? emojiTile(cat.emoji, cat.color, 'xl') : emojiTile('🧾', 'gray', 'xl')}
+      <div class="acc-total">${esc(fmtCur(br.total))}</div>
+      <div class="acc-usd">${esc(usdLine(br.total))}</div>
+      <div class="hero-meta">${esc(fmtMonth(m))}${br.total ? ` · ${share} % del gasto del mes` : ''}${deltaBadge(delta, prevKey)}</div></div>`;
+
+    const tagRows = br.rows.map((r) => {
+      const on = filter === r.id;
+      const c = r.tag?.color || 'gray';
+      return row({
+        lead: `<span class="swatch" style="background:${chColor(c)}"></span>`,
+        title: esc(r.tag?.name || 'Sin etiqueta'),
+        sub: `<div class="budget-sub"><div class="bar"><span style="width:${r.pct}%;background:${chColor(c)}"></span></div><span>${r.count} ${r.count === 1 ? 'gasto' : 'gastos'}</span></div>`,
+        trail: `<div class="amt-col"><span class="amt">${esc(fmtCur(r.cup))}</span><span class="amt-sub">${Math.round(r.pct)} %</span></div>`,
+        action: 'filter-tag', id: r.id || '-', cls: `tall ${on ? 'selected' : ''} ${filter !== null && !on ? 'dim' : ''}`,
+      });
+    }).join('');
+    const tagGroup = br.list.length ? group({
+      header: 'Por etiqueta',
+      headerTrail: filter !== null ? '<button type="button" class="link-btn" data-action="filter-tag" data-id="__all">Ver todas</button>' : '',
+      body: `<div class="split-wrap">${splitBar(br.rows.map((r) => ({ value: r.cup, color: r.tag?.color || 'gray', label: r.tag?.name || 'Sin etiqueta' })))}</div>${tagRows}`,
+      footer: `${br.overlap ? 'Un gasto con varias etiquetas cuenta en cada una, por eso los porcentajes pueden sumar más de 100 %. ' : ''}Toca una etiqueta para ver solo sus gastos.`,
+    }) : '';
+
+    const series = D.spendSeries(m, 6, catId);
+    const trend = `<section class="group"><div class="group-header"><span>Últimos 6 meses</span></div>
+      <div class="card chart-card">${columnChart(series, { color, selected: m, action: 'cat-month', label: cat?.name || 'Sin categoría' })}</div></section>`;
+
+    const list = br.list.filter((t) => filter === null || (filter === '' ? !(t.tagIds || []).some((id) => D.tag(id)) : (t.tagIds || []).includes(filter)));
+    const listGroup = list.length ? group({ header: filter === null ? 'Gastos del mes' : `Gastos: ${esc(filter ? D.tag(filter)?.name || '' : 'sin etiqueta')}`, body: list.map((t) => txnRow(t)).join('') })
+      : empty({ icon: 'receipt', title: 'Sin gastos este mes', text: 'Toca otro mes en el gráfico para ver sus gastos.' });
+
+    return hero + tagGroup + trend + listGroup
+      + (cat ? group({ body: F.button({ label: 'Editar categoría', action: 'edit-cat' }) }) : '');
+  };
+
+  openSheet({
+    title: store.get('budgets', catId)?.name || 'Sin categoría',
+    body: render(),
+    actions: {
+      'filter-tag'(el, api) {
+        const id = el.dataset.id === '-' ? '' : el.dataset.id;
+        filter = id === '__all' || filter === id ? null : id;
+        api.setBody(render());
+      },
+      'cat-month'(el, api) { m = el.dataset.month; filter = null; api.setBody(render()); },
+      'open-txn': (el, api) => { api.close(); setTimeout(() => openTxn(el.dataset.id), 300); },
+      'edit-cat': (el, api) => { api.close(); setTimeout(() => openCategorySheet(catId), 300); },
+    },
+  });
+}
+
+/* ---------- Etiquetas (gestión) ---------- */
+
+export function openTagEdit(id) {
+  const prev = id ? D.tag(id) : null;
+  const g = prev || { name: '', color: D.CHART_COLORS[D.tags().length % D.CHART_COLORS.length] };
+  const uses = prev ? D.tagUsage(id) : 0;
+  openSheet({
+    title: prev ? 'Etiqueta' : 'Nueva etiqueta',
+    require: 'name',
+    body: group({ body: F.text({ name: 'name', value: g.name, placeholder: 'Nombre (p. ej. Carne, Cumpleaños)', attrs: `autocapitalize="sentences" autocomplete="off"${prev ? '' : ' autofocus'}` }) })
+      + group({ header: 'Color', body: `<div class="pad">${F.picker({ name: 'color', value: g.color, options: D.CHART_COLORS })}</div>` })
+      + (prev ? group({ body: F.button({ label: 'Eliminar etiqueta', action: 'delete', cls: 'destructive' }), footer: uses ? `Se quitará de ${uses} ${uses === 1 ? 'gasto' : 'gastos'}; los gastos no se borran.` : '' }) : ''),
+    onDone(v) { D.saveTag({ ...g, name: v.name, color: v.color }); },
+    actions: {
+      async delete(el, api) {
+        if (await confirmDialog({ title: `¿Eliminar «${g.name}»?` })) { D.removeTag(g.id); api.close(); }
+      },
+    },
+  });
+}
+
+export function openTagsSheet() {
+  const list = D.tags();
+  openSheet({
+    title: 'Etiquetas',
+    body: group({
+      body: list.map((g) => row({ lead: `<span class="swatch" style="background:${chColor(g.color)}"></span>`, title: esc(g.name), trail: String(D.tagUsage(g.id)), action: 'edit', id: g.id, chevron: true })).join('')
+        + row({ lead: `<span class="add-circle">${icon('plus')}</span>`, title: '<span class="tint">Nueva etiqueta</span>', action: 'new' }),
+      footer: 'También puedes crearlas al anotar un gasto. El número indica en cuántos gastos se usa cada una.',
+    }),
+    actions: {
+      edit: (el, api) => { api.close(); setTimeout(() => openTagEdit(el.dataset.id), 300); },
+      new: (el, api) => { api.close(); setTimeout(() => openTagEdit(null), 300); },
+    },
+  });
+}
+
 export default {
   id: 'money',
   title: () => 'Finanzas',
@@ -606,21 +848,8 @@ export default {
       <span class="stat-value ${cls}">${esc(fmtCur(v.cup))}</span><span class="stat-usd">${v.usd != null && v.cup ? esc(`≈ ${fmtCur(v.usd, 'USD')}`) : '&nbsp;'}</span></div>`;
     const stats = `<div class="stats">${stat('Entradas', s.income, 'pos')}${stat('Gastado', s.spent, '')}</div>`;
 
-    const cats = Object.entries(s.byCat).sort((a, b) => b[1] - a[1]);
-    const catGroup = cats.length ? group({
-      header: 'En qué se ha gastado',
-      body: cats.map(([cid, cup]) => {
-        const c = store.get('budgets', cid);
-        const pct = s.spent.cup ? (cup / s.spent.cup) * 100 : 0;
-        return row({
-          lead: c ? emojiTile(c.emoji, c.color) : emojiTile('🧾', 'gray'),
-          title: esc(c?.name || 'Sin categoría'),
-          sub: `<div class="budget-sub">${progress(pct, c?.color || 'gray')}<span>${Math.round(pct)}% del gasto del mes</span></div>`,
-          trail: `<div class="amt-col"><span class="amt">${esc(fmtCur(cup))}</span><span class="amt-sub">${esc(usdLine(cup))}</span></div>`,
-          cls: 'tall',
-        });
-      }).join(''),
-    }) : '';
+    const catSection = categorySection(state.month);
+    const insights = insightsSection(state.month);
 
     const people = Object.entries(s.byMember).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
     const peopleGroup = people.length && D.members().length > 1 ? group({
@@ -635,7 +864,7 @@ export default {
 
     return largeTitle('Finanzas') + hero + actionButtons()
       + group({ header: 'Cuentas', body: accRows })
-      + monthNav + stats + catGroup + peopleGroup
+      + monthNav + stats + catSection + insights + peopleGroup
       + '<h2 class="sub-title">Movimientos</h2>' + movements;
   },
   actions: {
@@ -653,5 +882,7 @@ export default {
     'open-txn': (el) => openTxn(el.dataset.id),
     'open-account': (el) => openAccountSheet(el.dataset.id),
     'new-account': () => openAccountEdit(null),
+    'open-cat': (el) => openCategoryDetail(el.dataset.id, state.month),
+    'pick-month'(el) { state.month = el.dataset.month; app.render(); },
   },
 };

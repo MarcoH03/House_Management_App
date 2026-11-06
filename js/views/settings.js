@@ -4,12 +4,12 @@ import { sync } from '../sync.js';
 import { app } from '../app.js';
 import * as D from '../domain.js';
 import { esc, timeAgo, today, isIOS, fmtCur } from '../util.js';
-import { openRatesSheet, openCategoriesSheet } from './money.js';
+import { openRatesSheet, openCategoriesSheet, openTagsSheet } from './money.js';
 import { icon } from '../icons.js';
 import { largeTitle, group, row, F, avatar, iconTile } from '../ui.js';
 import { openSheet, confirmDialog, alertDialog, toast, actionSheet } from '../overlays.js';
 
-const VERSION = '1.1';
+const VERSION = '1.2';
 
 /* ---------- Estado de sincronización ---------- */
 
@@ -278,7 +278,8 @@ export default {
     const financeGroup = group({
       header: 'Finanzas',
       body: row({ lead: iconTile('exchange', 'orange'), title: 'Tasas de cambio', trail: usd ? esc(`1 USD = ${fmtCur(usd)}`) : 'Sin fijar', action: 'rates', chevron: true })
-        + row({ lead: iconTile('tray', 'purple'), title: 'Categorías de gasto', trail: String(D.categories().length), action: 'categories', chevron: true }),
+        + row({ lead: iconTile('tray', 'purple'), title: 'Categorías de gasto', trail: String(D.categories().length), action: 'categories', chevron: true })
+        + row({ lead: iconTile('tag', 'pink'), title: 'Etiquetas', trail: String(D.tags().length), action: 'tags', chevron: true }),
     });
 
     const dataGroup = group({
@@ -309,6 +310,7 @@ export default {
     export: exportData,
     rates: openRatesSheet,
     categories: openCategoriesSheet,
+    tags: openTagsSheet,
     install: openInstallSheet,
     async wipe() {
       if (await confirmDialog({ title: '¿Borrar los datos de este dispositivo?', message: sync.configured ? 'Se desconectará de la sincronización. Los datos en GitHub no se borran.' : 'Esta acción no se puede deshacer. Exporta antes una copia si la necesitas.', confirm: 'Borrar' })) {
