@@ -47,7 +47,7 @@ export default {
     </div>`;
 
     const budget = `<button type="button" class="card budget-card" data-action="go" data-tab="money">
-      <div class="bc-top"><span class="itile c-green">${icon('wallet')}</span><span class="bc-title">Dinero de la casa</span><span class="chev">${icon('chevronRight')}</span></div>
+      <div class="bc-top"><span class="itile c-green">${icon('wallet')}</span><span class="bc-title">${D.accounts().length > 1 ? `Dinero del mes · ${esc(D.mainAccount()?.name || '')}` : 'Dinero de la casa'}</span><span class="chev">${icon('chevronRight')}</span></div>
       <div class="bc-body">${totalsCard({ compact: true })}</div>
       ${s.spent.cup ? `<div class="bc-sub">Este mes se han gastado <b>${esc(fmtCur(s.spent.cup))}</b></div>` : ''}
     </button>`;

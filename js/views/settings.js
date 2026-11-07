@@ -9,7 +9,7 @@ import { icon } from '../icons.js';
 import { largeTitle, group, row, F, avatar, iconTile } from '../ui.js';
 import { openSheet, confirmDialog, alertDialog, toast, actionSheet } from '../overlays.js';
 
-const VERSION = '1.3';
+const VERSION = '1.4';
 
 /* ---------- Estado de sincronización ---------- */
 
@@ -277,7 +277,8 @@ export default {
     const usd = D.rateOf('USD');
     const financeGroup = group({
       header: 'Finanzas',
-      body: row({ lead: iconTile('exchange', 'orange'), title: 'Tasas de cambio', trail: usd ? esc(`1 USD = ${fmtCur(usd)}`) : 'Sin fijar', action: 'rates', chevron: true })
+      body: (D.accounts().length > 1 ? row({ lead: iconTile('star', 'yellow'), title: 'Cuenta principal', trail: esc(D.mainAccount()?.name || ''), action: 'main-account', chevron: true }) : '')
+        + row({ lead: iconTile('exchange', 'orange'), title: 'Tasas de cambio', trail: usd ? esc(`1 USD = ${fmtCur(usd)}`) : 'Sin fijar', action: 'rates', chevron: true })
         + row({ lead: iconTile('tray', 'purple'), title: 'Categorías de gasto', trail: String(D.categories().length), action: 'categories', chevron: true })
         + row({ lead: iconTile('tag', 'pink'), title: 'Etiquetas', trail: String(D.tags().length), action: 'tags', chevron: true }),
     });
@@ -309,6 +310,14 @@ export default {
     },
     export: exportData,
     rates: openRatesSheet,
+    async 'main-account'() {
+      const id = await actionSheet({
+        title: 'Cuenta principal',
+        message: 'Es la del dinero del mes: su saldo es lo disponible y sus gastos son los que cuentan en el resumen.',
+        actions: D.accounts().map((a) => ({ label: `${a.emoji} ${a.name}${D.isMainAccount(a.id) ? ' ✓' : ''}`, value: a.id })),
+      });
+      if (id) D.setMainAccount(id);
+    },
     categories: openCategoriesSheet,
     tags: openTagsSheet,
     install: openInstallSheet,

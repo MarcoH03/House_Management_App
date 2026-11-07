@@ -25,7 +25,9 @@ const oneAccount = () => D.accounts().length <= 1;
 const usdRounded = (usd) => (Math.abs(usd) < 1 ? 'menos de 1 USD' : `unos ${fmtCur(Math.round(Math.abs(usd)), 'USD')}`);
 const allCurrencies = () => D.sortCurrencies([...D.CURRENCY_CATALOG.map((c) => c[0]), ...D.currenciesInUse()]);
 const curOptions = (list) => list.map((c) => [c, c]);
-const accountOptions = () => D.accounts().map((a) => [a.id, `${a.emoji} ${a.name}`]);
+const accountOptions = () => D.accounts().map((a) => [a.id, `${a.emoji} ${a.name}${D.isMainAccount(a.id) && D.accounts().length > 1 ? ' (principal)' : ''}`]);
+/** Nombre de la cuenta principal, solo si hay varias (con una sola no hace falta decirlo). */
+const mainName = () => (D.accounts().length > 1 ? D.mainAccount()?.name || '' : '');
 const memberOptions = () => [['', '—'], ...D.members().map((m) => [m.id, m.name])];
 const categoryOptions = () => [['', 'Sin categoría'], ...D.categories().map((b) => [b.id, `${b.emoji} ${b.name}`])];
 
@@ -160,6 +162,9 @@ export function bindPayment(api, { kind, prev }) {
         ? `<span class="c-text-red">Solo hay ${esc(fmtCur(have, cur))}${esc(where)}</span>`
         : `Hay ${esc(fmtCur(have, cur))}${esc(where)}`);
     }
+    if (v.accountId && !oneAccount() && !D.isMainAccount(v.accountId)) {
+      lines.push(`<span class="note">${icon('info')} No sale de la cuenta principal: no contará en ${kind === 'expense' ? 'lo gastado' : 'las entradas'} del mes.</span>`);
+    }
     hint.innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
   };
   b.addEventListener('click', (e) => {
@@ -244,8 +249,11 @@ export function openTransferSheet(id, defaults = {}) {
     alertDialog('Necesitas dos cuentas', 'Crea otra cuenta en Finanzas para poder pasar dinero de una a otra.');
     return;
   }
-  const from = defaults.accountId || accs[0]?.id;
-  const t = prev || { type: 'transfer', amount: 0, currency: BASE, accountId: from, toAccountId: accs.find((a) => a.id !== from)?.id, date: today(), desc: '', ...defaults };
+  // Por defecto: de una cuenta de reserva a la principal (lo habitual al empezar el mes).
+  const main = D.mainAccountId();
+  const from = defaults.accountId || accs.find((a) => a.id !== main)?.id || accs[0]?.id;
+  const to = from === main ? accs.find((a) => a.id !== main)?.id : main;
+  const t = prev || { type: 'transfer', amount: 0, currency: BASE, accountId: from, toAccountId: to, date: today(), desc: '', ...defaults };
   openSheet({
     title: 'Transferir',
     body: moneyHero({ label: '¿Cuánto quieres pasar?', amount: t.amount, currency: t.currency })
@@ -405,7 +413,12 @@ export function openAccountSheet(id) {
   const body = `<div class="acc-hero">${emojiTile(a.emoji, a.color, 'xl')}
       <div class="acc-bals">${Object.entries(bal).map(([c, v]) => `<div class="acc-bal ${v < 0 ? 'neg' : ''}"><span class="flag">${D.curInfo(c).flag}</span>${esc(fmtCur(v, c))}</div>`).join('')}</div>
       <button type="button" class="link-btn" data-action="add-cur">${icon('plus')} Añadir otra moneda</button></div>`
+    + (D.accounts().length > 1 && D.isMainAccount(id) ? `<div class="main-note">${icon('star')}<span><b>Cuenta principal.</b> Es el dinero del mes: su saldo es lo disponible y sus gastos son los que cuentan en el resumen.</span></div>` : '')
     + actionButtons()
+    + (D.isMainAccount(id) ? '' : group({
+      body: F.button({ label: 'Usar como cuenta principal', action: 'set-main', lead: iconTile('star', 'yellow') }),
+      footer: 'La cuenta principal es la del dinero del mes. Las demás (reserva, ahorro…) se pueden usar igual, pero no cuentan en lo disponible ni en las estadísticas.',
+    }))
     + (list.length ? group({ header: 'Últimos movimientos', body: list.map((t) => txnRow(t, id)).join('') }) : '')
     + group({ body: F.button({ label: 'Editar cuenta', action: 'edit' }) + F.button({ label: 'Eliminar cuenta', action: 'delete', cls: 'destructive' }) });
 
@@ -426,6 +439,11 @@ export function openAccountSheet(id) {
         if (c) { D.addCurrencyToAccount(id, c); api.close(); setTimeout(() => openAccountSheet(id), 300); }
       },
       edit(el, api) { api.close(); setTimeout(() => openAccountEdit(id), 300); },
+      'set-main'(el, api) {
+        D.setMainAccount(id);
+        api.close();
+        toast(`«${a.name}» es ahora la cuenta principal`, 'star');
+      },
       async delete(el, api) {
         const nonZero = Object.values(bal).some((v) => Math.abs(v) > 0.001);
         if (await confirmDialog({ title: `¿Eliminar «${a.name}»?`, message: nonZero ? `Todavía tiene ${balanceText(bal)}. Los movimientos se conservarán en el historial.` : 'Los movimientos se conservarán en el historial.' })) {
@@ -640,7 +658,8 @@ export function totalsCard({ compact = false } = {}) {
   const held = Object.entries(tot.byCur).filter(([, v]) => v !== 0);
   const foreign = held.some(([c]) => c !== BASE);
   const usd = tot.cup > 0 ? usdWords(tot.cup) : '';
-  return `<div class="sum-label">Disponible</div>
+  const main = D.mainAccount();
+  return `<div class="sum-label">${mainName() ? `Disponible en ${esc(main.emoji)} ${esc(main.name)}` : 'Disponible'}</div>
     <div class="sum-value ${tot.cup < 0 ? 'neg' : ''}">${esc(fmtCur(tot.cup))}</div>
     ${usd ? `<div class="sum-usd">${esc(usd)}</div>` : ''}
     ${!compact && foreign ? `<div class="cur-chips"><span class="cur-chips-label">Tienes</span>${held.map(([c, v]) => `<span class="cur-chip">${D.curInfo(c).flag} ${esc(fmtCur(v, c))}</span>`).join('')}</div>` : ''}
@@ -706,7 +725,7 @@ function categorySection(month) {
     header: 'Gastos por categoría',
     headerTrail: `<span class="src">${esc(fmtCur(br.total))}</span>`,
     body: `<div class="split-wrap">${splitBar(parts)}</div>${rows}`,
-    footer: 'Toca una categoría para ver el desglose por etiquetas.',
+    footer: `Toca una categoría para ver el desglose por etiquetas.${mainName() ? ` Solo cuentan los gastos de «${esc(mainName())}».` : ''}`,
   });
 }
 
@@ -739,7 +758,7 @@ export function openStatsSheet(month) {
 
     return `<section class="group"><div class="group-header"><span>Lo gastado cada mes</span><span class="src">${avg ? `Media ${esc(fmtCur(Math.round(avg)))}` : ''}</span></div>
       <div class="card chart-card">${columnChart(series, { color: 'blue', selected: m, action: 'stats-month' })}</div>
-      <div class="group-footer">Toca un mes para ver sus cifras.</div></section>`
+      <div class="group-footer">Toca un mes para ver sus cifras.${mainName() ? ` Solo cuentan los gastos de «${esc(mainName())}», la cuenta principal.` : ''}</div></section>`
       + facts + peopleGroup;
   };
   openSheet({
@@ -863,11 +882,12 @@ export default {
 
     const hero = `<div class="card summary">${totalsCard()}</div>`;
 
-    const accRows = accs.map((a) => {
+    const main = D.mainAccountId();
+    const accRows = [...accs].sort((a, b) => (b.id === main) - (a.id === main)).map((a) => {
       const bal = D.accountBalances(a, led);
       return row({
         lead: emojiTile(a.emoji, a.color),
-        title: esc(a.name),
+        title: esc(a.name) + (accs.length > 1 && a.id === main ? ' <span class="badge-main">Principal</span>' : ''),
         sub: esc(balanceText(bal)),
         action: 'open-account', id: a.id, chevron: true,
       });
@@ -887,13 +907,14 @@ export default {
 
     const byDate = groupBy(s.list, (t) => t.date);
     const movements = s.list.length
-      ? [...byDate.entries()].map(([date, arr]) => group({ header: fmtDay(date), body: arr.map((t) => txnRow(t)).join('') })).join('')
+      ? [...byDate.entries()].map(([date, arr]) => group({ header: fmtDay(date), body: arr.map((t) => txnRow(t, main)).join('') })).join('')
       : empty({ icon: 'receipt', title: 'Sin movimientos este mes', text: 'Anota las entradas de dinero, los gastos y los cambios de moneda para saber cuánto queda.', action: 'new-move', actionLabel: 'Nuevo movimiento' });
 
     return largeTitle('Finanzas') + hero + actionButtons()
-      + group({ header: 'Cuentas', body: accRows })
+      + group({ header: 'Cuentas', body: accRows, footer: accs.length > 1 ? 'El resumen del mes solo tiene en cuenta la cuenta principal. Para cambiarla, entra en otra cuenta.' : '' })
       + monthNav + stats + catSection + statsRow
-      + '<h2 class="sub-title">Movimientos</h2>' + movements;
+      + `<h2 class="sub-title">Movimientos${mainName() ? ` <span class="sub-title-note">de ${esc(mainName())}</span>` : ''}</h2>` + movements
+      + (mainName() && s.list.length ? '<p class="footnote after">Los movimientos de las otras cuentas están dentro de cada cuenta.</p>' : '');
   },
   actions: {
     month(el) {

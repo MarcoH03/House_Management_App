@@ -367,7 +367,19 @@ export function currenciesInUse() {
 export const accounts = () =>
   store.list('accounts').sort((a, b) => (a.order ?? 99) - (b.order ?? 99) || a.createdAt - b.createdAt);
 export const account = (id) => store.get('accounts', id);
-export const defaultAccountId = () => accounts()[0]?.id || '';
+/**
+ * Cuenta principal: la del dinero del mes. El disponible, las entradas, lo gastado y
+ * las estadísticas se calculan solo con ella. Las demás (reserva, ahorro…) se pueden
+ * usar igual, pero no cuentan en el resumen. Se guarda en los ajustes de la casa.
+ */
+export function mainAccountId() {
+  const id = store.data.settings.mainAccountId;
+  return id && account(id) ? id : accounts()[0]?.id || '';
+}
+export const mainAccount = () => account(mainAccountId());
+export const isMainAccount = (id) => !!id && id === mainAccountId();
+export const setMainAccount = (id) => store.setSettings({ mainAccountId: id });
+export const defaultAccountId = mainAccountId;
 
 export function seedAccounts() {
   if (!Object.keys(store.data.accounts).length) {
@@ -428,9 +440,10 @@ export function valuation(byCur) {
   return { cup: round2(cup), usd: usdRate ? round2(cup / usdRate) : null, missing };
 }
 
-export function totals(led = ledger()) {
+/** Saldos sumados por moneda. Por defecto, solo los de la cuenta principal. */
+export function totals(led = ledger(), { all = false } = {}) {
   const byCur = {};
-  const known = new Set(accounts().map((a) => a.id));
+  const known = new Set(all ? accounts().map((a) => a.id) : [mainAccountId()]);
   for (const [acc, b] of Object.entries(led)) {
     if (!known.has(acc)) continue;
     for (const [c, v] of Object.entries(b)) byCur[c] = round2((byCur[c] || 0) + v);
@@ -447,7 +460,7 @@ export function saveTxn(t) {
   const prev = t.id ? store.get('txns', t.id) : null;
   const amount = round2(Math.abs(Number(t.amount) || 0));
   const rec = { by: meId(), date: today(), desc: '', ...t, amount };
-  if (rec.type === 'income' || rec.type === 'expense') {
+  if (rec.type === 'income' || rec.type === 'expense' || rec.type === 'transfer') {
     // La tasa se fija al crear el movimiento (o la que indique el usuario) y no se recalcula después.
     const r = rec.currency === BASE ? 1 : Number(rec.rate) || prev?.rate || rateOf(rec.currency);
     rec.rate = r;
@@ -476,26 +489,37 @@ export const txnUsd = (t) => (t.currency === 'USD' ? t.amount : t.usdRate ? roun
 export const txnsIn = (month) =>
   txns().filter((t) => monthOf(t.date) === month).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
 
+/** Valor en CUP con la tasa de su día (las transferencias antiguas no la guardaban). */
+const txnCup = (t) => (t.cup != null ? t.cup : round2((t.amount || 0) * rateOf(t.currency)));
+
+/**
+ * Resumen del mes de la cuenta principal.
+ * Entradas = dinero que entra en ella (entradas + lo que se pasa desde otras cuentas).
+ * Gastado  = gastos pagados desde ella.
+ */
 export function monthSummary(month) {
-  const list = txnsIn(month);
-  const sum = (type) => {
+  const main = mainAccountId();
+  const list = txnsIn(month).filter((t) => t.accountId === main || t.toAccountId === main);
+  const sum = (arr) => {
     let cup = 0; let usd = 0; let usdOk = true;
-    for (const t of list.filter((x) => x.type === type)) {
-      cup += t.cup || 0;
-      const u = txnUsd(t);
+    for (const t of arr) {
+      const c = txnCup(t);
+      cup += c;
+      const u = t.currency === 'USD' ? t.amount : t.usdRate ? c / t.usdRate : rateOf('USD') ? c / rateOf('USD') : null;
       if (u == null) usdOk = false; else usd += u;
     }
     return { cup: round2(cup), usd: usdOk ? round2(usd) : null };
   };
-  const income = sum('income');
-  const spent = sum('expense');
+  const expenses = list.filter((t) => t.type === 'expense' && t.accountId === main);
+  const income = sum(list.filter((t) => (t.type === 'income' && t.accountId === main) || (t.type === 'transfer' && t.toAccountId === main && t.accountId !== main)));
+  const spent = sum(expenses);
   const byCat = {};
-  for (const t of list.filter((x) => x.type === 'expense')) {
+  for (const t of expenses) {
     const k = store.get('budgets', t.categoryId) ? t.categoryId : '';
     byCat[k] = round2((byCat[k] || 0) + (t.cup || 0));
   }
   const byMember = {};
-  for (const t of list.filter((x) => x.type === 'expense')) byMember[t.by || ''] = round2((byMember[t.by || ''] || 0) + (t.cup || 0));
+  for (const t of expenses) byMember[t.by || ''] = round2((byMember[t.by || ''] || 0) + (t.cup || 0));
   return { month, list, income, spent, byCat, byMember };
 }
 
@@ -563,7 +587,8 @@ export function tagsForCategory(catId) {
   return tags().sort((a, b) => (count[b.id] || 0) - (count[a.id] || 0) || a.name.localeCompare(b.name, 'es'));
 }
 
-const expensesIn = (month, catId) => txns().filter((t) => t.type === 'expense' && monthOf(t.date) === month
+/** Gastos del mes de la cuenta principal (opcionalmente de una categoría). */
+const expensesIn = (month, catId) => txns().filter((t) => t.type === 'expense' && monthOf(t.date) === month && t.accountId === mainAccountId()
   && (catId === undefined || (store.get('budgets', t.categoryId) ? t.categoryId : '') === catId));
 
 export const spentIn = (month, catId) => round2(expensesIn(month, catId).reduce((s, t) => s + (t.cup || 0), 0));
