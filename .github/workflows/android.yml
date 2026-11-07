@@ -33,7 +33,12 @@ jobs:
           java-version: 21
           cache: gradle
 
-      - uses: android-actions/setup-android@v3
+      # Los servidores de GitHub ya traen el SDK de Android; solo se asegura la versión necesaria.
+      - name: SDK de Android
+        run: |
+          SDKM=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-35" "build-tools;35.0.0" "platform-tools" > /dev/null
 
       - name: Preparar la app web
         env:
