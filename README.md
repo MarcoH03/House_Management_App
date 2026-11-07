@@ -64,6 +64,20 @@ El workflow `.github/workflows/rates.yml` descarga la tasa representativa de elT
 
 > GitHub pausa los workflows programados de repositorios sin actividad durante 60 días. Si las tasas dejan de actualizarse, entra en **Actions** y vuelve a activarlo.
 
+## 5. App de Android
+
+La rama `claude/android-app` contiene, además de la web app, un proyecto Android hecho con [Capacitor](https://capacitorjs.com): la misma app empaquetada como app nativa (`.apk`), con todos los archivos dentro, así que funciona sin conexión y no hace falta instalarla desde el navegador.
+
+- **Compilación automática:** el workflow `.github/workflows/android.yml` compila el APK con cada cambio en esa rama y lo publica en **Releases**. Enlace que siempre descarga la última versión:
+  `https://github.com/MarcoH03/House_Management_App/releases/latest/download/Hogar.apk`
+- **Instalar en el móvil:** abrir ese enlace en el teléfono, descargar `Hogar.apk` y abrirlo. La primera vez Android pide permitir «instalar apps de fuentes desconocidas» para el navegador.
+- **Unirse a la casa:** en la app, «Unirme a una casa existente» y pegar el código de *Ajustes → Invitar a la casa*. Los datos son los mismos que en la web app y se sincronizan igual.
+- **Actualizaciones:** la app avisa en Inicio y en Ajustes cuando hay una versión nueva y la descarga con un toque. Se instala encima conservando los datos.
+- **Compatibilidad:** el código de la app es el mismo en las dos ramas. Los cambios de la web se llevan a Android fusionando la rama de la web en `claude/android-app`.
+- **Firma (una sola vez):** crea el secreto `HOGAR_SIGNING_PASSWORD` en **Settings → Secrets and variables → Actions → New repository secret** con una contraseña larga inventada por ti. La primera compilación genera la llave de firma y la guarda **cifrada** con esa contraseña (`android/app/hogar-release.jks.enc`); nunca se guarda en claro. No cambies ni pierdas esa contraseña: con otra llave Android no deja actualizar la app (habría que desinstalarla y volver a unirse a la casa).
+
+Para compilar en un ordenador con el SDK de Android: `npm ci && npm run android:apk`.
+
 ## Desarrollo
 
 Es HTML, CSS y JavaScript sin dependencias ni compilación. Para probarla en local:

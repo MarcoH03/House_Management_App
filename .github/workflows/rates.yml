@@ -6,7 +6,7 @@ name: Tasas de elTOque
 # para que los iPhone descarguen los cambios.
 on:
   push:
-    branches: [main, 'claude/**']
+    branches: [main, 'claude/**', '!claude/android-app']
     paths-ignore: ['rates.json']
   schedule:
     # Cada 4 horas. GitHub solo ejecuta las programaciones desde la rama por defecto.

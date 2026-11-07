@@ -1,0 +1,101 @@
+name: App de Android
+
+# Compila el APK de Hogar y lo publica en GitHub Releases, desde donde se
+# descarga en el móvil. Se ejecuta con cada cambio en la rama de Android o a
+# mano desde Actions → «App de Android» → Run workflow.
+on:
+  push:
+    branches: [claude/android-app]
+    paths-ignore: ['rates.json', '**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Preparar la app web
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          npm ci
+          node tools/build-web.mjs
+          npx cap sync android
+
+      # La llave de firma nunca se guarda en claro. La primera vez se genera aquí, se
+      # cifra con el secreto HOGAR_SIGNING_PASSWORD y se guarda cifrada en la rama
+      # (android/app/hogar-release.jks.enc). Las siguientes veces se descifra.
+      - name: Llave de firma
+        env:
+          HOGAR_SIGNING_PASSWORD: ${{ secrets.HOGAR_SIGNING_PASSWORD }}
+        run: |
+          if [ -z "$HOGAR_SIGNING_PASSWORD" ]; then
+            echo "::error title=Falta la contraseña de firma::Crea el secreto HOGAR_SIGNING_PASSWORD en Settings → Secrets and variables → Actions (inventa una contraseña larga) y vuelve a ejecutar este workflow."
+            exit 1
+          fi
+          ENC=android/app/hogar-release.jks.enc
+          KS="$RUNNER_TEMP/hogar.jks"
+          if [ -f "$ENC" ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in "$ENC" -out "$KS" -pass env:HOGAR_SIGNING_PASSWORD \
+              || { echo "::error title=No se pudo descifrar la llave::La contraseña de HOGAR_SIGNING_PASSWORD no es la que se usó al crearla."; exit 1; }
+          else
+            keytool -genkeypair -keystore "$KS" -storetype PKCS12 -alias hogar -keyalg RSA -keysize 2048 -validity 36500 \
+              -storepass:env HOGAR_SIGNING_PASSWORD -keypass:env HOGAR_SIGNING_PASSWORD -dname "CN=Hogar, O=Casa, C=CU"
+            openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -in "$KS" -out "$ENC" -pass env:HOGAR_SIGNING_PASSWORD
+            git config user.name "github-actions[bot]"
+            git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+            git add "$ENC"
+            git commit -m "Guardar la llave de firma de Android (cifrada)"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+          echo "HOGAR_KEYSTORE_FILE=$KS" >> "$GITHUB_ENV"
+
+      - name: Compilar el APK
+        working-directory: android
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          HOGAR_SIGNING_PASSWORD: ${{ secrets.HOGAR_SIGNING_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/Hogar.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hogar-android-${{ github.run_number }}
+          path: Hogar.apk
+
+      - name: Publicar para descargar
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(sed -n "s/^const VERSION = '\(.*\)';/\1/p" js/views/settings.js)
+          gh release create "android-${{ github.run_number }}" Hogar.apk \
+            --target "${GITHUB_SHA}" \
+            --title "Hogar para Android ${VERSION} (${{ github.run_number }})" \
+            --latest \
+            --notes "Para instalarla en el móvil: abre este enlace desde el teléfono, toca **Hogar.apk** y, cuando se descargue, ábrelo. La primera vez Android pedirá permitir instalar apps de esta fuente.
+
+          Enlace directo que siempre apunta a la última versión:
+          https://github.com/${{ github.repository }}/releases/latest/download/Hogar.apk"

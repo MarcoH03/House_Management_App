@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Hogar</string>
+    <string name="title_activity_main">Hogar</string>
+    <string name="package_name">io.github.marcoh03.hogar</string>
+    <string name="custom_url_scheme">io.github.marcoh03.hogar</string>
+</resources>
