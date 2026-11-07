@@ -10,6 +10,11 @@ import settings, { showSyncStatus, openJoinSheet, openWhoSheet } from './views/s
 import onboarding from './views/onboarding.js';
 import * as D from './domain.js';
 import { startRates, refreshRates } from './rates.js';
+import { isNative, isAndroid } from './platform.js';
+import { checkForUpdate, onUpdate } from './update.js';
+
+document.documentElement.classList.toggle('native', isNative);
+document.documentElement.classList.toggle('android', isAndroid);
 
 [home, shopping, tasks, money, settings, onboarding].forEach((v) => app.register(v));
 
@@ -57,7 +62,15 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') app.render('sync');
 });
 
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+// App de Android: avisar si hay versión nueva.
+if (isNative) {
+  onUpdate(() => app.render('sync'));
+  checkForUpdate();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+}
+
+// La app nativa lleva todos los archivos dentro: no necesita service worker.
+if (!isNative && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW', e));
   let reloading = false;

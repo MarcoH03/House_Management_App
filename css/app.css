@@ -709,3 +709,24 @@ label.row { cursor: text; }
 .money-hint .note .i { width: 15px; height: 15px; flex-shrink: 0; margin-top: 1px; }
 .sub-title-note { font-size: 17px; font-weight: 600; color: var(--label2); letter-spacing: -0.2px; }
 .footnote.after { margin: -14px 16px 24px; }
+
+/* ---------- App de Android ----------
+   Misma app, con los detalles que un usuario de Android espera: barra de
+   navegación inferior de ancho completo (Material 3) y tipografía del sistema. */
+
+html.android { --font: Roboto, "Google Sans", system-ui, sans-serif; --font-round: "Google Sans", Roboto, system-ui, sans-serif; --tab-bottom: 0px; }
+html.android body { letter-spacing: 0; }
+html.android .tabbar {
+  left: 0; right: 0; bottom: 0; transform: none; width: auto; height: calc(80px + var(--safe-bottom));
+  padding: 12px 0 calc(16px + var(--safe-bottom)); border-radius: 0; border: 0;
+  background: var(--bg2); -webkit-backdrop-filter: none; backdrop-filter: none;
+  box-shadow: 0 -0.5px 0 var(--sep);
+}
+html.android .tab { gap: 4px; border-radius: 0; background: none; color: var(--label2); font-size: 12px; font-weight: 500; }
+html.android .tab .i { width: 64px; height: 32px; padding: 4px 20px; border-radius: 16px; stroke-width: 2; transition: background 0.2s; }
+html.android .tab.on { background: none; color: var(--label); font-weight: 700; }
+html.android .tab.on .i { background: color-mix(in srgb, var(--tint) 18%, transparent); color: var(--tint); }
+html.android .tab:active { transform: none; }
+html.android .badge { top: 8px; left: calc(50% + 8px); }
+html.android #view { padding-bottom: calc(80px + var(--safe-bottom) + 24px); }
+html.android .navbar { padding-top: var(--safe-top); }

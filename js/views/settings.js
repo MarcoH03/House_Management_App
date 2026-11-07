@@ -5,6 +5,10 @@ import { app } from '../app.js';
 import * as D from '../domain.js';
 import { esc, timeAgo, today, isIOS, fmtCur } from '../util.js';
 import { openRatesSheet, openCategoriesSheet, openTagsSheet } from './money.js';
+import { appUrl, isNative, build, REPO } from '../platform.js';
+import { updateInfo, checkForUpdate, downloadUpdate } from '../update.js';
+
+export const APK_URL = `https://github.com/${REPO}/releases/latest/download/Hogar.apk`;
 import { icon } from '../icons.js';
 import { largeTitle, group, row, F, avatar, iconTile } from '../ui.js';
 import { openSheet, confirmDialog, alertDialog, toast, actionSheet } from '../overlays.js';
@@ -100,7 +104,7 @@ export function openJoinSheet(code = '', after) {
 
 export function openShareSheet() {
   const code = sync.shareCode();
-  const link = `${location.origin}${location.pathname}#join=${code}`;
+  const link = `${appUrl()}#join=${code}`;
   const body = `<div class="explain"><div class="explain-icon">${icon('people')}</div>
       <p>Envía este código a las personas de tu casa. En su iPhone deben abrir la app, elegir <b>Unirme a una casa existente</b> y pegarlo.</p></div>`
     + group({ body: `<div class="code-box" data-action="copy">${esc(code)}</div>` })
@@ -116,7 +120,9 @@ export function openShareSheet() {
         try { await navigator.clipboard.writeText(code); toast('Código copiado', 'copy'); } catch { alertDialog('No se pudo copiar', 'Mantén pulsado el código para copiarlo.'); }
       },
       async share() {
-        const text = `Únete a «${store.data.settings.name || 'nuestra casa'}» en la app Hogar.\n\n1. Abre ${location.origin}${location.pathname} y añádela a la pantalla de inicio.\n2. Elige «Unirme a una casa existente» y pega este código:\n\n${code}\n\n(o abre: ${link})`;
+        const text = `Únete a «${store.data.settings.name || 'nuestra casa'}» en la app Hogar.\n\n`
+          + `1. Instala la app:\n• Android: ${APK_URL}\n• iPhone: abre ${appUrl()} en Safari y añádela a la pantalla de inicio.\n`
+          + `2. Ábrela, elige «Unirme a una casa existente» y pega este código:\n\n${code}`;
         if (navigator.share) {
           try { await navigator.share({ title: 'Únete a la casa', text }); } catch { /* cancelado */ }
         } else {
@@ -292,7 +298,8 @@ export default {
 
     const help = group({
       body: (isIOS ? row({ lead: iconTile('phone', 'gray'), title: 'Instalar en el iPhone', action: 'install', chevron: true }) : '')
-        + row({ lead: iconTile('info', 'gray'), title: 'Versión', trail: VERSION }),
+        + (isNative ? row({ lead: iconTile('download', 'green'), title: updateInfo() ? '<b>Descargar la versión nueva</b>' : 'Buscar actualizaciones', sub: updateInfo() ? 'Toca para descargarla e instalarla' : '', action: 'check-update', chevron: true }) : '')
+        + row({ lead: iconTile('info', 'gray'), title: 'Versión', trail: isNative ? `${VERSION} · Android ${build.build}` : VERSION }),
     });
 
     return largeTitle('Ajustes') + head + membersGroup + financeGroup + syncGroup + dataGroup + help;
@@ -321,6 +328,13 @@ export default {
     categories: openCategoriesSheet,
     tags: openTagsSheet,
     install: openInstallSheet,
+    async 'check-update'() {
+      if (updateInfo()) { downloadUpdate(); return; }
+      toast('Buscando…', 'sync');
+      const u = await checkForUpdate({ force: true });
+      if (u) app.render();
+      else toast('Ya tienes la última versión', 'check');
+    },
     async wipe() {
       if (await confirmDialog({ title: '¿Borrar los datos de este dispositivo?', message: sync.configured ? 'Se desconectará de la sincronización. Los datos en GitHub no se borran.' : 'Esta acción no se puede deshacer. Exporta antes una copia si la necesitas.', confirm: 'Borrar' })) {
         sync.disconnect();
