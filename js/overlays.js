@@ -4,6 +4,50 @@ import { esc, parseAmount, fmtNum, round2 } from './util.js';
 
 const root = () => document.getElementById('overlays');
 
+/* ---------- Botón «atrás» (Android y navegador) ----------
+   Cada hoja o alerta abierta añade una entrada al historial; al pulsar «atrás»
+   se cierra la de arriba en vez de salir de la app. */
+const stack = [];
+let pendingBacks = 0;
+let rootBack = null;
+
+/** Qué hacer con «atrás» cuando no hay nada abierto (lo define app.js). */
+export function setRootBack(fn) { rootBack = fn; }
+
+function pushOverlay(close) {
+  const entry = { close };
+  stack.push(entry);
+  try { history.pushState({ hogarOverlay: stack.length }, ''); } catch { /* sin historial */ }
+  return entry;
+}
+
+/** Quita la hoja de la pila. Si se cerró desde la app (no con «atrás»), retrocede el historial. */
+function popOverlay(entry, fromHistory) {
+  const i = stack.indexOf(entry);
+  if (i < 0) return;
+  stack.splice(i, 1);
+  if (!fromHistory) {
+    pendingBacks++;
+    try { history.back(); } catch { pendingBacks--; }
+  }
+}
+
+window.addEventListener('popstate', (e) => {
+  // Profundidad de la entrada a la que se ha vuelto: se cierra todo lo que esté por encima.
+  const depth = e.state?.hogarOverlay || 0;
+  let closedAny = false;
+  while (stack.length > depth) {
+    stack.pop().close(true);
+    closedAny = true;
+  }
+  if (closedAny) return;
+  if (pendingBacks > 0) { pendingBacks--; return; } // retroceso hecho por la propia app
+  if (depth > 0) { try { history.back(); } catch { /* nada */ } return; } // entrada huérfana
+  rootBack?.(e);
+});
+
+export const overlaysOpen = () => stack.length > 0;
+
 let lockCount = 0;
 let savedY = 0;
 function lock() {
@@ -119,6 +163,7 @@ export function openSheet({ title = '', body = '', onDone, doneLabel = 'Guardar'
   const bodyEl = wrap.querySelector('.sheet-body');
   const doneBtn = wrap.querySelector('[data-sheet="done"]');
   let closed = false;
+  let entry = null;
 
   const api = {
     el: sheet,
@@ -134,9 +179,10 @@ export function openSheet({ title = '', body = '', onDone, doneLabel = 'Guardar'
     doneBtn.disabled = !(f && f.value.trim());
   }
 
-  function close() {
+  function close(fromHistory = false) {
     if (closed) return;
     closed = true;
+    popOverlay(entry, fromHistory === true);
     document.removeEventListener('keydown', onKey);
     wrap.classList.remove('open');
     setTimeout(() => { wrap.remove(); unlock(); }, 380);
@@ -185,7 +231,8 @@ export function openSheet({ title = '', body = '', onDone, doneLabel = 'Guardar'
     }
   });
 
-  setupDrag(sheet, wrap.querySelector('.sheet-head'), close);
+  setupDrag(sheet, wrap.querySelector('.sheet-head'), () => close());
+  entry = pushOverlay(close);
   validate();
   onMount?.(api);
   requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -209,12 +256,21 @@ export function dialog({ title, message = '', buttons = [{ label: 'Aceptar', val
         `<button type="button" class="alert-btn ${b.style || ''}" data-i="${i}">${esc(b.label)}</button>`).join('')}</div></div>`;
     root().appendChild(wrap);
     requestAnimationFrame(() => requestAnimationFrame(() => wrap.classList.add('open')));
+    let done = false;
+    const cancelValue = (buttons.find((b) => b.style === 'cancel') || buttons[0]).value;
+    const finish = (value, fromHistory = false) => {
+      if (done) return;
+      done = true;
+      popOverlay(entry, fromHistory);
+      wrap.classList.remove('open');
+      setTimeout(() => wrap.remove(), 220);
+      resolve(value);
+    };
+    const entry = pushOverlay((fromHistory) => finish(cancelValue, fromHistory));
     wrap.addEventListener('click', (e) => {
       const b = e.target.closest('[data-i]');
       if (!b) return;
-      wrap.classList.remove('open');
-      setTimeout(() => wrap.remove(), 220);
-      resolve(buttons[Number(b.dataset.i)].value);
+      finish(buttons[Number(b.dataset.i)].value);
     });
   });
 }
@@ -243,11 +299,16 @@ export function actionSheet({ title = '', message = '', actions }) {
       <button type="button" class="asheet-btn cancel glass" data-i="-1">Cancelar</button></div>`;
     root().appendChild(wrap);
     requestAnimationFrame(() => requestAnimationFrame(() => wrap.classList.add('open')));
-    const finish = (v) => {
+    let done = false;
+    const finish = (v, fromHistory = false) => {
+      if (done) return;
+      done = true;
+      popOverlay(entry, fromHistory);
       wrap.classList.remove('open');
       setTimeout(() => { wrap.remove(); unlock(); }, 320);
       resolve(v);
     };
+    const entry = pushOverlay((fromHistory) => finish(null, fromHistory));
     wrap.addEventListener('click', (e) => {
       if (e.target.classList.contains('sheet-backdrop')) return finish(null);
       const b = e.target.closest('[data-i]');

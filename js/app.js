@@ -1,7 +1,7 @@
 // Shell de la app: barra de navegación, barra de pestañas, enrutado y render.
 import { store } from './store.js';
 import { icon } from './icons.js';
-import { scrollPos } from './overlays.js';
+import { scrollPos, setRootBack } from './overlays.js';
 
 const TABS = [
   ['home', 'Inicio', 'house'],
@@ -64,14 +64,31 @@ export const app = {
       }, 50);
     });
     window.addEventListener('scroll', () => this.onScroll(), { passive: true });
+    // «Atrás» sin ventanas abiertas: desde otra pestaña vuelve a Inicio.
+    setRootBack(() => {
+      if (this.tab !== 'home' && store.meta.onboarded) {
+        this.go('home', { top: true, fromBack: true });
+        try { history.replaceState(null, '', '#home'); } catch { /* nada */ }
+      }
+    });
   },
 
   go(tab, opts = {}) {
     if (!this.views[tab]) return;
+    // Volver a Inicio desde otra pestaña = deshacer la entrada del historial.
+    if (tab === 'home' && this.tab !== 'home' && !opts.fromBack && history.state?.hogarTab) {
+      history.back();
+      return;
+    }
     if (tab !== this.tab) {
       this.scroll[this.tab] = scrollPos();
+      const from = this.tab;
       this.tab = tab;
-      try { history.replaceState(null, '', `#${tab}`); } catch { /* sin historial */ }
+      // Al salir de Inicio se añade una entrada al historial, para que «atrás» vuelva a Inicio.
+      try {
+        if (from === 'home' && tab !== 'home' && !opts.fromBack) history.pushState({ hogarTab: tab }, '', `#${tab}`);
+        else if (!opts.fromBack) history.replaceState(history.state, '', `#${tab}`);
+      } catch { /* sin historial */ }
     }
     this.views[tab].onShow?.(opts);
     this.render();

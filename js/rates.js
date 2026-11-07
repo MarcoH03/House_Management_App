@@ -3,6 +3,7 @@
 // las últimas tasas guardadas, que el usuario puede editar a mano.
 import { store } from './store.js';
 import * as D from './domain.js';
+import { isNative, PUBLIC_URL } from './platform.js';
 
 let last = 0;
 let inflight = null;
@@ -15,14 +16,17 @@ export const SOURCE_LABEL = {
 
 /** Descarga rates.json. Devuelve el objeto o null. */
 export async function fetchPublished() {
-  try {
-    const res = await fetch(`./rates.json?t=${Date.now()}`, { cache: 'no-store' });
-    if (!res.ok) return null;
-    const j = await res.json();
-    return j && j.rates && Number(j.rates.USD) > 0 ? j : null;
-  } catch {
-    return null;
+  // La app nativa lleva una copia dentro; la actual se lee de la web publicada.
+  const urls = isNative ? [`${PUBLIC_URL}rates.json`, './rates.json'] : ['./rates.json'];
+  for (const url of urls) {
+    try {
+      const res = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) continue;
+      const j = await res.json();
+      if (j && j.rates && Number(j.rates.USD) > 0) return j;
+    } catch { /* probar la siguiente */ }
   }
+  return null;
 }
 
 /**

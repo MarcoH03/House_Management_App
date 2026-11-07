@@ -9,6 +9,7 @@ import { unbilledBanner, shoppingActions, openItemSheet } from './shopping.js';
 import { openTaskSheet, taskRow, completeWithFeedback } from './tasks.js';
 import { openExpenseSheet, totalsCard } from './money.js';
 import { syncIndicator, openInstallSheet } from './settings.js';
+import { updateInfo, downloadUpdate } from '../update.js';
 
 function tile({ tab, seg, color, ic, label, value, sub = '' }) {
   return `<button type="button" class="tile" data-action="go" data-tab="${tab}" ${seg ? `data-seg="${seg}"` : ''}>
@@ -83,8 +84,14 @@ export default {
       }),
     }) : '';
 
+    const upd = updateInfo();
+    const updateBanner = upd ? `<div class="banner">
+      <span class="itile c-green">${icon('download')}</span>
+      <div class="banner-main"><div class="banner-title">Hay una versión nueva de Hogar</div><div class="banner-text">Toca «Actualizar» para descargarla</div></div>
+      <button type="button" class="btn-tinted small" data-action="update">Actualizar</button></div>` : '';
+
     return largeTitle(store.data.settings.name || 'Casa', fmtLongDate() + (meName ? ` · Hola, ${meName}` : ''))
-      + install + unbilledBanner() + tiles + budget + quick
+      + updateBanner + install + unbilledBanner() + tiles + budget + quick
       + section({ title: 'Para hoy', trail: `<button type="button" class="link-btn" data-action="go" data-tab="tasks">Ver todas</button>`, body: todayBody })
       + section({ title: 'Lista de la compra', trail: list.length > 6 ? `<button type="button" class="link-btn" data-action="go" data-tab="shopping" data-seg="list">Ver todo (${list.length})</button>` : '', body: listBody })
       + activity;
@@ -98,6 +105,7 @@ export default {
     'complete-task': completeWithFeedback,
     'open-task': (el) => openTaskSheet(el.dataset.id),
     install: openInstallSheet,
+    update: downloadUpdate,
     'dismiss-install': () => store.setMeta({ installHint: true }),
   },
 };
