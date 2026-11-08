@@ -2,13 +2,10 @@ package io.github.marcoh03.hogar
 
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
@@ -52,7 +49,10 @@ class ScreensTest {
         rule.waitForIdle()
         rule.mainClock.advanceTimeBy(1000)
         rule.waitForIdle()
-        val bmp = rule.onRoot().captureToImage().asAndroidBitmap()
+        // Se dibuja la ventana entera (captureToImage no funciona bien en Robolectric).
+        val view = rule.activity.window.decorView
+        val bmp = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(android.graphics.Canvas(bmp))
         File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
@@ -109,7 +109,8 @@ class ScreensTest {
         assertEquals(30000.0 + 50 * 667 + 10000, s.income.cup, 0.01)
         assertEquals(5200.0 + 2100 + 3000 + 4100 + 5 * 667, s.spent.cup, 0.01)
         val casa = D.ledger()["acc-casa"]!!
-        assertEquals(30000.0 + 10000 + 13340 - 5200 - 2100 - 3000 - 4100, casa["CUP"]!!, 0.01)
+        // El saldo incluye todos los meses: también los gastos del mes pasado (4.200 y 3.500).
+        assertEquals(30000.0 + 10000 + 13340 - 5200 - 2100 - 3000 - 4100 - 4200 - 3500, casa["CUP"]!!, 0.01)
         assertEquals(50.0 - 20 - 5, casa["USD"]!!, 0.01)
         val tb = D.tagBreakdown(thisMonth(), "b-super")
         assertEquals(true, tb.overlap)
