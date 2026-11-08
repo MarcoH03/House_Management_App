@@ -1,6 +1,7 @@
 name: App de Android
 
-# Compila el APK de Hogar y lo publica en GitHub Releases, desde donde se
+# Compila la app nativa de Android (Kotlin + Jetpack Compose, carpeta android/),
+# ejecuta sus pruebas y publica el APK en GitHub Releases, desde donde se
 # descarga en el móvil. Se ejecuta con cada cambio en la rama de Android o a
 # mano desde Actions → «App de Android» → Run workflow.
 on:
@@ -22,11 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -40,13 +36,20 @@ jobs:
           yes | "$SDKM" --licenses > /dev/null || true
           "$SDKM" "platforms;android-35" "build-tools;35.0.0" "platform-tools" > /dev/null
 
-      - name: Preparar la app web
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
+      # Pruebas en el ordenador (Robolectric): recorren la app con datos de ejemplo,
+      # comprueban los cálculos y guardan capturas de cada pantalla.
+      - name: Pruebas
+        working-directory: android
         run: |
-          npm ci
-          node tools/build-web.mjs
-          npx cap sync android
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: capturas-${{ github.run_number }}
+          path: android/app/build/screenshots
+          if-no-files-found: ignore
 
       # La llave de firma nunca se guarda en claro. La primera vez se genera aquí, se
       # cifra con el secreto HOGAR_SIGNING_PASSWORD y se guarda cifrada en la rama
@@ -82,7 +85,6 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
           HOGAR_SIGNING_PASSWORD: ${{ secrets.HOGAR_SIGNING_PASSWORD }}
         run: |
-          chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/Hogar.apk"
 
@@ -95,7 +97,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(sed -n "s/^const VERSION = '\(.*\)';/\1/p" js/views/settings.js)
+          VERSION="2.0"
           gh release create "android-${{ github.run_number }}" Hogar.apk \
             --target "${GITHUB_SHA}" \
             --title "Hogar para Android ${VERSION} (${{ github.run_number }})" \
