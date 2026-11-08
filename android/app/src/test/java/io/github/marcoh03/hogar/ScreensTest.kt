@@ -64,6 +64,9 @@ class ScreensTest {
     }
 
     private fun seed() {
+        // Cada prueba empieza en Inicio (la navegación es global).
+        Nav.stack.clear(); Nav.tab = Tab.HOME
+        io.github.marcoh03.hogar.ui.ShoppingState.tab = 0
         val ctx = rule.activity.applicationContext
         Store.init(ctx)
         Store.reset()
